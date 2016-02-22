@@ -99,6 +99,7 @@ class PrismPickingOutAdapter(StockPickingOutAdapter):
         bots_picking_obj = self.session.pool.get('bots.stock.picking.out')
         move_obj = self.session.pool.get('stock.move')
         purchase_line_obj = self.session.pool.get('purchase.order.line')
+        purchase_obj = self.session.pool.get('purchase.order')
 
         picking = bots_picking_obj.browse(self.session.cr, self.session.uid, picking_id)
 
@@ -126,6 +127,11 @@ class PrismPickingOutAdapter(StockPickingOutAdapter):
                     # We cannot cross-dock a PO which has already been received into the warehouse, eg "deliver at once" stock
                     if move_po.picking_id and not move_po.state == 'done':
                         po_name = picking_binder.to_backend(move_po.picking_id.id, wrap=True) or ""
+
+                        # If the PO has been processed then we prevent linking to the actual PO by using the po_name 999999.
+                        # # We prevent raising an error since we can get the product from existing stock.
+                        po_name = '999999' if (not po_name and move_po.purchase_line_id[0].order_id.state == "done") else ''
+
                         if not po_name:
                             raise NoExternalId("No PO ID found, try again later")
 
