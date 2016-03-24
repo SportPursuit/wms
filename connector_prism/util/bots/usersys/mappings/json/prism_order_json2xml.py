@@ -106,6 +106,7 @@ def main(inn,out):
             LINE_TYPE = '*FIRST'
             LINE_CUSTOMS_TYPE = pline.get({'BOTSID': 'line', 'customs_commodity_code': None}) or '0'
             LINE_QTY = float(pline.get({'BOTSID': 'line', 'product_qty': None}) or 0.0)
+            LINE_BUNDLE = float(pline.get({'BOTSID': 'line', 'bundle': None}) or 0.0)
             LINE_DESC = pline.get({'BOTSID': 'line', 'desc': None})
             LINE_VOLUME_NET = pline.get({'BOTSID': 'line', 'volume_net': None})
             LINE_WEIGHT = pline.get({'BOTSID': 'line', 'weight': None})
@@ -119,17 +120,29 @@ def main(inn,out):
             if LINE_VAT_RATE is None:
                 LINE_VAT_RATE = float(LINE_TOTAL_EX_VAT) and 100 * (LINE_VAT / float(LINE_TOTAL_EX_VAT)) or 0.00
 
+            LINE_QTY = int(LINE_QTY or 0)
+
+            if LINE_BUNDLE:
+                remainder = (LINE_PRICE_UNIT * 100) % LINE_QTY  # Determine the leftover pennies
+                even = LINE_PRICE_UNIT - (remainder / 100)  # The amount that the quantity will divide into equally
+
+                # Sprinkle the pennies evenly until we have our original price
+                prices = [even] * LINE_QTY
+                for counter, _ in enumerate(range(remainder)):
+                    prices[counter] += .01
+
+            else:
+                prices = [LINE_PRICE_UNIT] * LINE_QTY
+
             # ORDER LINES
-            itr = 0
-            for dummy in xrange(int(LINE_QTY or 0)):
-                itr += 1
-                LINE_QTY = 1.0
-                ORD_ITEMS += LINE_QTY
+            for counter in xrange(LINE_QTY):
+                ORD_ITEMS += 1
+                LINE_PRICE_UNIT = prices[counter]
                 ORD_TOTAL += LINE_PRICE_UNIT
                 ORD_CURRENCY = ORD_CURRENCY or LINE_CURRENCY
                 if LINE_CURRENCY != ORD_CURRENCY:
                     raise NotImplementedError('Unable to handle order with multiple currencies')
-                LINE_UUID = "%s0%s" % (itr, LINE_INTERNAL_ID)
+                LINE_UUID = "%s0M%s" % (counter, LINE_INTERNAL_ID)
                 LINE_ATTRS = {
                     'uniqueRecordID': LINE_UUID,
                 }
@@ -139,7 +152,7 @@ def main(inn,out):
                 order_line_out.put({'BOTSID':'item', 'productCode': LINE_PRODUCT})
                 order_line_out.put({'BOTSID':'item', 'unitPrice': round(0.0, price_precision)}) # LINE_PRICE_UNIT (0.0 as Prism doesn't expect this field to be set)
                 order_line_out.put({'BOTSID':'item', 'salesPrice': round(0.0, price_precision)}) # LINE_PRICE_UNIT * LINE_QTY (0.0 as Prism doesn't expect this field to be set)
-                order_line_out.put({'BOTSID':'item', 'paidPrice': round(LINE_PRICE_UNIT * LINE_QTY, price_precision)})
+                order_line_out.put({'BOTSID':'item', 'paidPrice': round(LINE_PRICE_UNIT, price_precision)})
                 order_line_out.put({'BOTSID':'item', 'tax': round(LINE_VAT, price_precision)})
                 order_line_out.put({'BOTSID':'item', 'taxIncluded': 1})
                 order_line_out.put({'BOTSID':'item', 'taxRate': round(LINE_VAT_RATE, percentage_precision)})
