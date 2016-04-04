@@ -125,10 +125,10 @@ def main(inn,out):
             if LINE_BUNDLE:
                 remainder = (LINE_PRICE_UNIT * 100) % LINE_QTY  # Determine the leftover pennies
                 even = LINE_PRICE_UNIT - (remainder / 100)  # The amount that the quantity will divide into equally
+                prices = [even / LINE_QTY] * LINE_QTY  # Equally divide the prices
 
                 # Sprinkle the pennies evenly until we have our original price
-                prices = [even] * LINE_QTY
-                for counter, _ in enumerate(range(remainder)):
+                for counter in xrange(remainder):
                     prices[counter] += .01
 
             else:
