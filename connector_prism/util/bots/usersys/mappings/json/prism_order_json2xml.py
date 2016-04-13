@@ -106,7 +106,7 @@ def main(inn,out):
             LINE_TYPE = '*FIRST'
             LINE_CUSTOMS_TYPE = pline.get({'BOTSID': 'line', 'customs_commodity_code': None}) or '0'
             LINE_QTY = float(pline.get({'BOTSID': 'line', 'product_qty': None}) or 0.0)
-            LINE_BUNDLE = float(pline.get({'BOTSID': 'line', 'bundle': None}) or 0.0)
+            LINE_BUNDLE = bool(pline.get({'BOTSID': 'line', 'bundle': None}) or False)
             LINE_DESC = pline.get({'BOTSID': 'line', 'desc': None})
             LINE_VOLUME_NET = pline.get({'BOTSID': 'line', 'volume_net': None})
             LINE_WEIGHT = pline.get({'BOTSID': 'line', 'weight': None})
