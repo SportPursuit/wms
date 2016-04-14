@@ -105,7 +105,7 @@ def main(inn,out):
             LINE_PRODUCT = pline.get({'BOTSID': 'line', 'product': None}).upper()
             LINE_TYPE = '*FIRST'
             LINE_CUSTOMS_TYPE = pline.get({'BOTSID': 'line', 'customs_commodity_code': None}) or '0'
-            LINE_QTY = float(pline.get({'BOTSID': 'line', 'product_qty': None}) or 0.0)
+            LINE_QTY = int(pline.get({'BOTSID': 'line', 'product_qty': None}) or 0)
             LINE_BUNDLE = bool(pline.get({'BOTSID': 'line', 'bundle': None}) or False)
             LINE_DESC = pline.get({'BOTSID': 'line', 'desc': None})
             LINE_VOLUME_NET = pline.get({'BOTSID': 'line', 'volume_net': None})
@@ -120,11 +120,9 @@ def main(inn,out):
             if LINE_VAT_RATE is None:
                 LINE_VAT_RATE = float(LINE_TOTAL_EX_VAT) and 100 * (LINE_VAT / float(LINE_TOTAL_EX_VAT)) or 0.00
 
-            LINE_QTY = int(LINE_QTY or 0)
-
             if LINE_BUNDLE:
-                remainder = (LINE_PRICE_UNIT * 100) % LINE_QTY  # Determine the leftover pennies
-                even = LINE_PRICE_UNIT - (remainder / 100)  # The amount that the quantity will divide into equally
+                remainder = (int(LINE_PRICE_UNIT * 100)) % LINE_QTY  # Determine the leftover pennies
+                even = LINE_PRICE_UNIT - (remainder / 100.0)  # The amount that the quantity will divide into equally
                 prices = [even / LINE_QTY] * LINE_QTY  # Equally divide the prices
 
                 # Sprinkle the pennies evenly until we have our original price
@@ -162,7 +160,7 @@ def main(inn,out):
                     order_line_attr.put({'BOTSID':'attribute', 'name': ATTR_NAME})
                     order_line_attr.put({'BOTSID':'attribute', 'value': ATTR_VALUE})
 
-        ORDER_PAYMENTS = [('CARD', ORD_CURRENCY, ORD_TOTAL)] # Hardcoded for CARD for total order total
+        ORDER_PAYMENTS = [('CARD', ORD_CURRENCY, round(ORD_TOTAL, price_precision))] # Hardcoded for CARD for total order total
 
         ORDER_SUBCHANNEL = order_attrs.get('subChannel') or ''
         ORDER_POSTAGERATE = order_attrs.get('basicPostageRate') or 0.0
