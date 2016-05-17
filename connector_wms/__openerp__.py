@@ -19,8 +19,8 @@
 ##############################################################################
 
 {'name': 'Connector for WMS',
-' 'version': 7.20160516.0,
-' 'category': 'Connector',
+ 'version': '7.20160516.0',
+ 'category': 'Connector',
  'author': 'credativ Ltd',
  'website': 'http://www.credativ.co.uk',
  'license': 'AGPL-3',
