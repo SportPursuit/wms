@@ -600,12 +600,12 @@ class StockPickingAdapter(BotsCRUDAdapter):
             MODEL = 'bots.stock.picking.in'
             TYPE = 'in'
             FILENAME = 'picking_in_%s.json'
-            ALLOWED_STATES = ('waiting', 'confirmed', 'assigned', 'done')
+            ALLOWED_STATES = ['waiting', 'confirmed', 'assigned',]
         elif self._picking_type == 'out':
             MODEL = 'bots.stock.picking.out'
             TYPE = 'out'
             FILENAME = 'picking_out_%s.json'
-            ALLOWED_STATES = ('assigned', 'done')
+            ALLOWED_STATES = ['assigned',]
         else:
             raise NotImplementedError('Unable to adapt stock picking of type %s' % (self._picking_type,))
 
@@ -625,6 +625,10 @@ class StockPickingAdapter(BotsCRUDAdapter):
         ctx = (self.session.context or {}).copy()
         ctx.update({'company_id': default_company_id})
         default_company = self.session.pool.get('res.company').browse(self.session.cr, self.session.uid, default_company_id, context=ctx)
+
+        # For exporting pickings, include done moves if exporting once picking done
+        if getattr(picking.backend_id, 'feat_export_picking_out_when_done', False):
+            ALLOWED_STATES.append('done')
 
         picking = bots_picking_obj.browse(self.session.cr, self.session.uid, picking_id, context=ctx)
         if self._picking_type == 'out':
@@ -793,6 +797,7 @@ class StockPickingAdapter(BotsCRUDAdapter):
                                               {
                                                   'move_type': sale_policy,
                                                   'move_lines': [],
+                                                  'origin': picking.origin,
                                               },
                                               context=ctx)
             move_obj.write(self.session.cr, self.session.uid, moves_to_split, {'picking_id': new_picking_id}, context=ctx)
@@ -998,12 +1003,16 @@ def picking_cancel(session, model_name, record_id, picking_type):
                 and not all([move.state == 'cancel' for move in picking.move_lines]):
             late_pickings.append(picking.name)
             continue
-        if (picking_type == 'bots.stock.picking.out' and picking.backend_id.feat_picking_out_cancel) or \
+        if not picking.bots_id:
+            picking.unlink()
+        elif (picking_type == 'bots.stock.picking.out' and picking.backend_id.feat_picking_out_cancel) or \
             (picking_type == 'bots.stock.picking.in' and picking.backend_id.feat_picking_in_cancel):
             export_picking_cancel.delay(session, picking_type, picking.id)
+        else:
+            raise osv.except_osv(_('Error!'), _('Cancellations are not enabled and this picking has already been exported to the warehouse: %s') % (picking.name,))
 
     if late_pickings:
-        raise osv.except_osv(_('Error!'), _('Could not cancel the following pickings, they might have already been delivered by the warehouse: %s') % ", ".join(late_pickings))
+        raise osv.except_osv(_('Error!'), _('Could not cancel the following pickings, they might have already been delivered by the warehouse: %s') % (", ".join(late_pickings),))
 
 @bots
 class BotsPickingExport(ExportSynchronizer):
