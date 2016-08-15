@@ -19,7 +19,7 @@
 ##############################################################################
 
 {'name': 'Connector for WMS',
- 'version': '1.0.0',
+ 'version': '7.20160815.0',
  'category': 'Connector',
  'author': 'credativ Ltd',
  'website': 'http://www.credativ.co.uk',
