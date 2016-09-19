@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 ##############################################################################
 #
-#    Copyright 2014 credativ Ltd
+#    Copyright 2016 credativ Ltd
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU Affero General Public License as
@@ -18,36 +18,22 @@
 #
 ##############################################################################
 
-{'name': 'Connector for WMS',
- 'version': '7.20160919.0',
- 'category': 'Connector',
- 'author': 'credativ Ltd',
- 'website': 'http://www.credativ.co.uk',
- 'license': 'AGPL-3',
- 'description': """
-Connector for WMS
-=================
-
-This modules aims to be a common layer for the connectors dealing with
-Warehouse Management.
-
-It sits on top of the `connector`_ framework and is used by the
-WMS connectors.
-
-That's a technical module, which include amongst other things:
-
-Events
-
-    On which the connectors can subscribe consumers
-    (Picking assigned, ...)
-
-""",
- 'depends': [
-     'connector',
-     'connector_ecommerce',
-     'delivery',
- ],
- 'data': [
- ],
- 'installable': True,
+{
+    'name': 'BOTS Connector Magento Bundle Support',
+    'version': '7.20160919.0',
+    'category': 'Connector',
+    'author': 'credativ Ltd',
+    'website': 'http://www.credativ.co.uk',
+    'license': 'AGPL-3',
+    'description': '''
+This module adds an awareness of Magento bundles to the BOTS connector, and ensures that these are kept together when splitting pickings.
+    ''',
+    'depends': [
+        'connector_bots',
+        'magento_bundle_availability', # https://github.com/credativUK/credativ-addons
+    ],
+    'data': [
+    ],
+    'installable': True,
+    'active' : False,
 }
