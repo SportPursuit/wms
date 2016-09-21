@@ -20,7 +20,7 @@
 
 {
     'name': 'BOTS Connector Magento Bundle Support',
-    'version': '1.0',
+    'version': '7.20160921.0',
     'category': 'Connector',
     'author': 'credativ Ltd',
     'website': 'http://www.credativ.co.uk',
