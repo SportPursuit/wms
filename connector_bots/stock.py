@@ -262,14 +262,48 @@ class StockPickingOut(orm.Model):
         res = super(StockPickingOut, self).unlink(cr, uid, ids, context=context)
         return res
 
+
+class StockPickingTracking(orm.Model):
+    _name = 'stock.picking.carrier.tracking'
+
+    def _get_tracking_link(self, cr, uid, ids, field_name, arg, context=None):
+        carrier_obj = self.pool.get('delivery.warehouse.carrier')
+
+        tracking_refs = self.read(cr, uid, ids, ['carrier_id', 'tracking_reference'])
+
+        res = {}
+
+        for tracking_ref in tracking_refs:
+            carrier = carrier_obj.browse(tracking_ref['carrier_id'])
+            if carrier.tracking_link:
+                url = carrier.tracking_link.replace('[[code]]', tracking_ref['tracking_reference'])
+            else:
+                url = tracking_ref['tracking_reference']
+
+            res[tracking_ref['id']] = url
+
+        return res
+
+    _columns = {
+        'picking_id': fields.many2one('stock.picking', 'Picking', select=True, required=True),
+        'carrier_id': fields.many2one('delivery.warehouse.carrier', 'Warehouse Carrier', select=True, required=True),
+        'tracking_reference': fields.char('Carrier Tracking Ref', size=128, required=True),
+        'tracking_link': fields.function(_get_tracking_link, type='str', string='Tracking Link', readonly=True)
+    }
+
+
+StockPickingTracking()
+
+
 class StockPicking(orm.Model):
     _inherit = 'stock.picking'
 
     _columns = {
-            'bots_customs': fields.boolean('Bonded Goods', help='If this picking is subject to duties.', states={'done':[('readonly', True)], 'cancel':[('readonly',True)], 'assigned':[('readonly',True)]}),
-            'carrier_tracking_ref': fields.char('Carrier Tracking Ref', size=128),
-            'prio_id' : fields.many2one('order.prio', 'Priority', help='The priority code to assign to this picking. If blank, will default to \'4\'.', readonly=True, states={'draft':[('readonly',False)],'confirmed':[('readonly',False)]}),
-        }
+        'bots_customs': fields.boolean('Bonded Goods', help='If this picking is subject to duties.', states={'done':[('readonly', True)], 'cancel':[('readonly',True)], 'assigned':[('readonly',True)]}),
+        'carrier_tracking_ref': fields.char('Carrier Tracking Ref', size=128),
+        'prio_id' : fields.many2one('order.prio', 'Priority', help='The priority code to assign to this picking. If blank, will default to \'4\'.', readonly=True, states={'draft':[('readonly',False)],'confirmed':[('readonly',False)]}),
+        'tracking_references': fields.one2many('stock.picking.carrier.tracking', 'picking_id', 'Tracking References')
+    }
 
     def _get_default_prio(self, cr, uid, context=None):
         # On deployment, the initial data is not populated at this point.

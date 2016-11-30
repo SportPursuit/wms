@@ -340,45 +340,45 @@ class WarehouseAdapter(BotsCRUDAdapter):
         self._handle_confirmations(cr, uid, picking_new, prod_confirm, context=None)
         return True
 
-    def _get_tracking(self, cr, uid, picking, contect=None):
-        carrier_obj = self.session.pool.get('delivery.carrier')
+    def _save_tracking(self, cr, uid, picking, picking_ids, context=None):
+        carrier_obj = self.session.pool.get('delivery.warehouse.carrier')
+        picking_obj = self.session.pool.get('stock.picking')
+        carrier_tracking_obj = self.session.pool.get('stock.picking.carrier.tracking')
 
-        tracking_number = False
-        carrier_id = False
-        tracking_data = {}
+        tracking_number = picking.get('tracking_number')
 
-        if picking.get('tracking_number'):
-            tracking_number = picking.get('tracking_number')
-        else:
-            tracking_numbers = {}
-            for tracking in picking.get('references', []):
-                # Get the first sane tracking reference
-                tracking_code = tracking.get('id') or tracking.get('desc')
-                tracking_ref = tracking.get('desc') or tracking.get('id')
-                if tracking.get('type') == 'consignment' and tracking_ref and tracking_ref not in ('N/A',):
-                    tracking_numbers['consignment'] = tracking_ref
-                elif ((tracking.get('type') == 'purchase_ref' and picking['type'] == 'in') or \
-                        (tracking.get('type') == 'shipping_ref' and picking['type'] == 'out')) and \
-                        tracking_code and tracking_code not in ('N/A',):
-                    tracking_numbers['pick_ref'] = tracking_code
-                elif tracking_code and tracking_code not in ('N/A',):
-                    tracking_numbers['other_ref'] = tracking_code
-            tracking_number = tracking_numbers.get('consignment') or tracking_numbers.get('pick_ref') or tracking_numbers.get('other_ref') or False
+        if not tracking_number:
+            raise JobError('No tracking reference found')
 
-        carrier = picking.get('service_carrier') or picking.get('carrier')
+        warehouse_carrier_id = None
+        carrier = picking.get('carrier')
         if carrier:
-            carrier_ids = carrier_obj.search(cr, uid, [('name', 'like', carrier),], context=contect)
+            carrier_ids = carrier_obj.search(cr, uid, [('carrier_code', 'like', carrier)], context=context)
             if carrier_ids:
-                carrier_id = carrier_ids[0]
-            else:
-                tracking_number = "%s: %s" % (carrier, tracking_number or '')
+                warehouse_carrier_id = carrier_ids[0]
 
-        if tracking_number:
-            tracking_data['carrier_tracking_ref'] = tracking_number
-        if carrier_id:
-            tracking_data['carrier_id'] = carrier_id
+        if not warehouse_carrier_id:
+            raise JobError('Carrier %s is not recognised by Odoo' % carrier)
 
-        return tracking_data
+        tracking_data = {
+            'carrier_tracking_ref': tracking_number,
+        }
+
+        picking_obj.write(cr, self.session.uid, picking_ids, tracking_data, context=context)
+
+        tracking_number = tracking_number.split(',')
+
+        for number in tracking_number:
+            tracking_id = carrier_tracking_obj.create(
+                cr, uid, {'picking_id': picking_ids, 'tracking_reference': number, 'carrier_id': warehouse_carrier_id}
+            )
+
+            tracking = carrier_tracking_obj.browse(tracking_id)
+            tracking_url = tracking.tracking_link
+
+            picking_obj.message_post(
+                cr, uid, picking_ids, body=_('Tracking Reference: ') + tracking_url, context=context
+            )
 
     def get_picking_conf(self, picking_types, new_cr=True):
         product_binder = self.get_binder_for_model('bots.product')
@@ -495,9 +495,9 @@ class WarehouseAdapter(BotsCRUDAdapter):
                             del move_dict
 
                             # Handle tracking information
-                            tracking_data = self._get_tracking(_cr, self.session.uid, picking, contect=ctx)
-                            if tracking_data:
-                                picking_obj.write(_cr, self.session.uid, picking_ids, tracking_data, context=ctx)
+                            self._save_tracking(_cr, self.session.uid, picking, picking_ids, context=ctx)
+                            # if tracking_data:
+                            #     picking_obj.write(_cr, self.session.uid, picking_ids, tracking_data, context=ctx)
 
                             # If we are not confirming anything we should just update the tracking info and continue
                             if picking['confirmed'] not in ('Y', 'True', '1', True, 1):
