@@ -274,7 +274,7 @@ class StockPickingTracking(orm.Model):
         res = {}
 
         for tracking_ref in tracking_refs:
-            carrier = carrier_obj.browse(tracking_ref['carrier_id'])
+            carrier = carrier_obj.browse(cr, uid, tracking_ref['carrier_id'])
             if carrier.tracking_link:
                 url = carrier.tracking_link.replace('[[code]]', tracking_ref['tracking_reference'])
             else:

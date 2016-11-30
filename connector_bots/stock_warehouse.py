@@ -373,7 +373,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                 cr, uid, {'picking_id': picking_ids[0], 'tracking_reference': number, 'carrier_id': warehouse_carrier_id}
             )
 
-            tracking = carrier_tracking_obj.browse(tracking_id)
+            tracking = carrier_tracking_obj.browse(cr, uid, tracking_id)
             tracking_url = tracking.tracking_link
 
             picking_obj.message_post(
