@@ -370,14 +370,14 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
         for number in tracking_number:
             tracking_id = carrier_tracking_obj.create(
-                cr, uid, {'picking_id': picking_ids, 'tracking_reference': number, 'carrier_id': warehouse_carrier_id}
+                cr, uid, {'picking_id': picking_ids[0], 'tracking_reference': number, 'carrier_id': warehouse_carrier_id}
             )
 
             tracking = carrier_tracking_obj.browse(tracking_id)
             tracking_url = tracking.tracking_link
 
             picking_obj.message_post(
-                cr, uid, picking_ids, body=_('Tracking Reference: ') + tracking_url, context=context
+                cr, uid, picking_ids[0], body=_('Tracking Reference: ') + tracking_url, context=context
             )
 
     def get_picking_conf(self, picking_types, new_cr=True):
