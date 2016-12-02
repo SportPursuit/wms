@@ -364,11 +364,18 @@ class WarehouseAdapter(BotsCRUDAdapter):
             'carrier_tracking_ref': tracking_number,
         }
 
+        # Save the tracking reference on the delivery order
         picking_obj.write(cr, self.session.uid, picking_ids, tracking_data, context=context)
 
+        # Save each tracking number on it's own line
         tracking_number = tracking_number.split(',')
 
         for number in tracking_number:
+
+            if warehouse_carrier_id is not None and number.startswith('BL'):
+                carrier = carrier_obj.read(cr, uid, warehouse_carrier_id, ['name'])['name']
+                raise JobError('Found blank label tracking reference %s for known courier %s' % (number, carrier))
+
             tracking_id = carrier_tracking_obj.create(
                 cr, uid, {'picking_id': picking_ids[0], 'tracking_reference': number, 'carrier_id': warehouse_carrier_id}
             )

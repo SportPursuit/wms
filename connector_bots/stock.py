@@ -274,12 +274,14 @@ class StockPickingTracking(orm.Model):
         res = {}
 
         for tracking_ref in tracking_refs:
-            carrier = carrier_obj.read(cr, uid, tracking_ref['carrier_id'][0], ['tracking_link'])
+            carrier = carrier_obj.read(cr, uid, tracking_ref['carrier_id'][0], ['name', 'tracking_link'])
+            name = carrier['name']
+
             if carrier['tracking_link']:
                 url = carrier['tracking_link'].replace('[[code]]', tracking_ref['tracking_reference'])
-                url = '<a href="%s">%s</a>' % (url, tracking_ref['tracking_reference'])
+                url = '<a href="%s" target="_blank">%s - %s</a>' % (url, name, tracking_ref['tracking_reference'])
             else:
-                url = tracking_ref['tracking_reference']
+                url = "%s - %s" % (name, tracking_ref['tracking_reference'])
 
             res[tracking_ref['id']] = url
 
