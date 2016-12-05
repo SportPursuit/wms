@@ -345,6 +345,9 @@ class WarehouseAdapter(BotsCRUDAdapter):
         picking_obj = self.session.pool.get('stock.picking')
         carrier_tracking_obj = self.session.pool.get('stock.picking.carrier.tracking')
 
+        assert len(picking_ids) == 1, "We should only be saving tracking info for one delivery order"
+        picking_id = picking_ids[0]
+
         tracking_number = picking.get('tracking_number')
 
         if not tracking_number:
@@ -365,7 +368,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
         }
 
         # Save the tracking reference on the delivery order
-        picking_obj.write(cr, self.session.uid, picking_ids, tracking_data, context=context)
+        picking_obj.write(cr, self.session.uid, picking_id, tracking_data, context=context)
 
         # Save each tracking number on it's own line
         tracking_number = tracking_number.split(',')
@@ -377,14 +380,14 @@ class WarehouseAdapter(BotsCRUDAdapter):
                 raise JobError('Found blank label tracking reference %s for known courier %s' % (number, carrier))
 
             tracking_id = carrier_tracking_obj.create(
-                cr, uid, {'picking_id': picking_ids[0], 'tracking_reference': number, 'carrier_id': warehouse_carrier_id}
+                cr, uid, {'picking_id': picking_id, 'tracking_reference': number, 'carrier_id': warehouse_carrier_id}
             )
 
             tracking = carrier_tracking_obj.browse(cr, uid, tracking_id)
             tracking_url = tracking.tracking_link
 
             picking_obj.message_post(
-                cr, uid, picking_ids[0], body=_('Tracking Reference: ') + tracking_url, context=context
+                cr, uid, picking_id, body=_('Tracking Reference: ') + tracking_url, context=context
             )
 
     def get_picking_conf(self, picking_types, new_cr=True):
@@ -502,7 +505,8 @@ class WarehouseAdapter(BotsCRUDAdapter):
                             del move_dict
 
                             # Handle tracking information
-                            self._save_tracking(_cr, self.session.uid, picking, picking_ids, context=ctx)
+                            update_ids = [p_id for p_id in picking_ids if p_id != main_picking.openerp_id.id] or picking_ids
+                            self._save_tracking(_cr, self.session.uid, picking, update_ids, context=ctx)
                             # if tracking_data:
                             #     picking_obj.write(_cr, self.session.uid, picking_ids, tracking_data, context=ctx)
 
