@@ -788,7 +788,7 @@ class StockPickingAdapter(BotsCRUDAdapter):
                     "price_unit": round(price, precision),
                     "price_currency": currency.name,
                     "alternative_description": move.name,
-                    "bundle": bundle
+                    "bundle": int(bundle)
                 }
 
             if move.product_id.volume:
