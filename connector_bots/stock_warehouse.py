@@ -363,12 +363,8 @@ class WarehouseAdapter(BotsCRUDAdapter):
         if not warehouse_carrier_id:
             raise JobError('Carrier %s is not recognised by Odoo' % carrier)
 
-        tracking_data = {
-            'carrier_tracking_ref': tracking_number,
-        }
-
         # Save the tracking reference on the delivery order
-        picking_obj.write(cr, self.session.uid, picking_id, tracking_data, context=context)
+        picking_obj.write(cr, self.session.uid, picking_id, {'carrier_tracking_ref': tracking_number}, context=context)
 
         # Save each tracking number on it's own line
         tracking_number = tracking_number.split(',')

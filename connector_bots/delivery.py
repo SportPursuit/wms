@@ -3,7 +3,7 @@ from openerp.osv import fields, orm
 
 
 class delivery_warehouse_carrier(orm.Model):
-    _name = "delivery.warehouse.carrier"
+    _name = 'delivery.warehouse.carrier'
 
     _columns = {
         'name': fields.char('Name', size=128),

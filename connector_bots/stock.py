@@ -267,6 +267,10 @@ class StockPickingTracking(orm.Model):
     _name = 'stock.picking.carrier.tracking'
 
     def _get_tracking_link(self, cr, uid, ids, field_name, arg, context=None):
+        context = context or {}
+
+        magento_version = context.get('magento_tracking_ref_export', False)
+
         carrier_obj = self.pool.get('delivery.warehouse.carrier')
 
         tracking_refs = self.read(cr, uid, ids, ['carrier_id', 'tracking_reference'])
@@ -277,11 +281,16 @@ class StockPickingTracking(orm.Model):
             carrier = carrier_obj.read(cr, uid, tracking_ref['carrier_id'][0], ['name', 'tracking_link'])
             name = carrier['name']
 
+            if not magento_version:
+                name = '%s - %s' % (name, tracking_ref['tracking_reference'])
+
             if carrier['tracking_link']:
                 url = carrier['tracking_link'].replace('[[code]]', tracking_ref['tracking_reference'])
-                url = '<a href="%s" target="_blank">%s - %s</a>' % (url, name, tracking_ref['tracking_reference'])
+
+                if not magento_version:
+                    url = '<a href="%s" target="_blank">%s</a>' % (url, name)
             else:
-                url = "%s - %s" % (name, tracking_ref['tracking_reference'])
+                url = name
 
             res[tracking_ref['id']] = url
 
