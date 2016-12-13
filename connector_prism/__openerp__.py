@@ -19,7 +19,7 @@
 ##############################################################################
 
 {'name': 'Connector for Bots EDI server - Prism',
- 'version': '1.0.0',
+ 'version': '7.20161213.0',
  'category': 'Connector',
  'author': 'credativ Ltd',
  'website': 'http://www.credativ.co.uk',
