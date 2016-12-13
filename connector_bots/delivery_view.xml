@@ -19,9 +19,9 @@
             <field name="model">delivery.warehouse.carrier</field>
             <field name="arch" type="xml">
                 <tree string="Delivery Carriers" version="7.0">
-                    <field name="name"/>
-                    <field name="carrier_code"/>
-                    <field name="tracking_link"/>
+                    <field name="name" string="Carrier"/>
+                    <field name="carrier_code" string="Carrier Code"/>
+                    <field name="tracking_link" string="Tracking Link"/>
                 </tree>
             </field>
         </record>
