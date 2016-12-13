@@ -36,7 +36,7 @@
 
         <menuitem id="menu_warehouse_delivery_carriers"
                   name="Delivery Carriers"
-                  parent="menu_delivery"
+                  parent="delivery.menu_delivery"
                   sequence="30"
                   action="action_warehouse_delivery_carriers"
         />
