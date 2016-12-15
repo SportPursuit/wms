@@ -7,9 +7,11 @@
             <field name="model">delivery.warehouse.carrier</field>
             <field name="arch" type="xml">
                 <form string="Delivery Carriers" version="7.0">
-                    <field name="name" string="Carrier"/>
-                    <field name="carrier_code" string="Carrier Code"/>
-                    <field name="tracking_link" string="Tracking Link"/>
+                    <group name="carriers" string="Delivery Carrier">
+                        <field name="name" string="Carrier"/>
+                        <field name="carrier_code" string="Carrier Code"/>
+                        <field name="tracking_link" string="Tracking Link"/>
+                    </group>
                 </form>
             </field>
         </record>

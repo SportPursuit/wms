@@ -196,6 +196,7 @@ class StockPickingOut(orm.Model):
                 help="Scheduled time for the shipment to be processed"
             ),
             'carrier_tracking_ref': fields.char('Carrier Tracking Ref', size=128),
+            'tracking_references': fields.one2many('stock.picking.carrier.tracking', 'picking_id', 'Tracking References'),
             'prio_id' : fields.many2one('order.prio', 'Priority', help='The priority code to assign to this picking. If blank, will default to \'4\'.', readonly=True, states={'draft':[('readonly',False)],'confirmed':[('readonly',False)]}),
         }
 
@@ -266,11 +267,35 @@ class StockPickingOut(orm.Model):
 class StockPickingTracking(orm.Model):
     _name = 'stock.picking.carrier.tracking'
 
+
+    def _get_tracking_details(self, cr, uid, carrier_ids, values):
+        carrier_obj = self.pool.get('delivery.warehouse.carrier')
+
+        return carrier_obj.read(cr, uid, carrier_ids, values)
+
+    def _get_magento_tracking_link(self, cr, uid, ids, field_name, arg, context=None):
+        carrier_obj = self.pool.get('delivery.warehouse.carrier')
+
+        tracking_refs = self.read(cr, uid, ids, ['carrier_id', 'tracking_reference'])
+
+        res = {}
+
+        carrier_ids = [tracking_ref['carrier_id'][0] for tracking_ref in tracking_refs]
+
+
+        for tracking_ref in tracking_refs:
+            carrier = carrier_obj.read(cr, uid, tracking_ref['carrier_id'][0], ['name', 'tracking_link'])
+
+            if carrier['tracking_link']:
+                url = carrier['tracking_link'].replace('[[code]]', tracking_ref['tracking_reference'])
+            else:
+                url = ''
+
+            res[tracking_ref['id']] = url
+
+        return res
+
     def _get_tracking_link(self, cr, uid, ids, field_name, arg, context=None):
-        context = context or {}
-
-        magento_version = context.get('magento_tracking_ref_export', False)
-
         carrier_obj = self.pool.get('delivery.warehouse.carrier')
 
         tracking_refs = self.read(cr, uid, ids, ['carrier_id', 'tracking_reference'])
@@ -281,14 +306,9 @@ class StockPickingTracking(orm.Model):
             carrier = carrier_obj.read(cr, uid, tracking_ref['carrier_id'][0], ['name', 'tracking_link'])
             name = carrier['name']
 
-            if not magento_version:
-                name = '%s - %s' % (name, tracking_ref['tracking_reference'])
-
             if carrier['tracking_link']:
                 url = carrier['tracking_link'].replace('[[code]]', tracking_ref['tracking_reference'])
-
-                if not magento_version:
-                    url = '<a href="%s" target="_blank">%s</a>' % (url, name)
+                url = '<a href="%s" target="_blank">%s - %s</a>' % (url, name, tracking_ref['tracking_reference'])
             else:
                 url = name
 
@@ -300,7 +320,8 @@ class StockPickingTracking(orm.Model):
         'picking_id': fields.many2one('stock.picking', 'Picking', select=True, required=True),
         'carrier_id': fields.many2one('delivery.warehouse.carrier', 'Warehouse Carrier', select=True, required=True),
         'tracking_reference': fields.char('Carrier Tracking Ref', size=128, required=True),
-        'tracking_link': fields.function(_get_tracking_link, type='str', string='Tracking Link', readonly=True)
+        'tracking_link': fields.function(_get_tracking_link, type='str', string='Tracking Link', readonly=True),
+        'magento_tracking_link': fields.function(_get_magento_tracking_link, type='str', string='Tracking Link', readonly=True)
     }
 
 
