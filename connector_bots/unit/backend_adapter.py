@@ -35,55 +35,42 @@ import re
 _logger = logging.getLogger(__name__)
 
 @contextmanager
-def file_to_process(session, filename_id, new_cr=True):
+def file_to_process(session, filename_id):
     """
         Open file for reading and return the contents as a stream.
 
-        If new_cr is true, everything is handled in a separate transaction that
-        is committed on successful completion and file then moved away to the
-        archive location.
-
-        If new_cr is False, caller accepts the potential data loss arising from
-        the fact that the uncommitted state may still be rolled back after the
-        file and state has already been archived.
+        Everything is handled in a separate transaction that is committed on successful completion and the file is
+        marked as processed so it can be cleaned up later on.
     """
-    fd = None
-
     file_obj = session.pool.get('bots.file')
-    try:
-        cr = pooler.get_db(session.cr.dbname).cursor()
-        if new_cr:
-            orig_cr = session.cr
-            session.cr = cr
 
+    cr = pooler.get_db(session.cr.dbname).cursor()
+
+    try:
         cr.execute("SELECT id FROM bots_file WHERE id = %s FOR UPDATE NOWAIT" % (filename_id,))
         ids = [x[0] for x in cr.fetchall()]
+
         if not ids: # We acquired 0 locks which means the bots_file record has already been processed
-            raise RetryableJobError('The bots.file record %s is no longer available, the file may have already been processed by another thread, skipping.' % (filename_id,))
+            raise RetryableJobError(
+                'The bots.file record %s is no longer available, the file may have already been processed '
+                'by another thread, skipping.' % (filename_id,)
+            )
+
         file = file_obj.browse(cr, SUPERUSER_ID, filename_id)
-        fd = open(file.full_path, "rb")
-        yield fd
+        with open(file.full_path, "rb") as fd:
+            yield fd
+
         file_obj.write(cr, SUPERUSER_ID, filename_id, {'processed': True})
         cr.commit()
 
-        # If we committed, the file is marked as successfully processed and
-        # noone else will try to do so again. It can be archived now but should
-        # that fail, nothing happens, really, as anyone can do the move later
-        os.rename(file.full_path, file.arch_path)
-        file_obj.unlink(cr, SUPERUSER_ID, filename_id)
     except:
         cr.rollback()
         raise
+
     finally:
-        if fd:
-            fd.close()
-
-        # we have already rolled back if there was an error
-        if new_cr:
-            session.cr = orig_cr
-
         cr.commit()
         cr.close()
+
 
 class BotsLocation(object):
 
