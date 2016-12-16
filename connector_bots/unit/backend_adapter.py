@@ -164,7 +164,7 @@ class BotsCRUDAdapter(CRUDAdapter):
                         try:
                             os.rename(file[1], f['arch_path'])
                             file_obj.unlink(_cr, SUPERUSER_ID, file_id)
-                        except IOError, e:
+                        except Exception:
                             _logger.exception('Error trying to move file %s -> %s', file[1], f['arch_path'])
                         continue
                 else:
