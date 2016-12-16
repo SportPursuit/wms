@@ -96,11 +96,14 @@ class BotsStockInventoryBinder(BotsModelBinder):
 class BotsWarehouseImport(ImportSynchronizer):
     _model_name = ['bots.warehouse']
 
-    def import_picking_confirmation(self, picking_types=('in', 'out'), new_cr=True):
+    def import_picking_confirmation(self, model_name, record_id, picking_types=('in', 'out')):
         """
         Import the picking confirmation from Bots
         """
-        self.backend_adapter.get_picking_conf(picking_types, new_cr=new_cr)
+        self.backend_adapter.get_picking_conf(model_name, record_id, picking_types)
+
+    def process_picking_conf(self, file_id, picking_types):
+        self.backend_adapter.process_picking_conf(file_id, picking_types)
 
     def import_stock_levels(self, warehouse_id, new_cr=True):
         """
@@ -380,7 +383,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
         return tracking_data
 
-    def process_picking_conf(self, file_id, picking_types, new_cr=True):
+    def process_picking_conf(self, file_id, picking_types):
 
         product_binder = self.get_binder_for_model('bots.product')
         picking_in_binder = self.get_binder_for_model('bots.stock.picking.in')
@@ -564,13 +567,13 @@ class WarehouseAdapter(BotsCRUDAdapter):
                         raise NotImplementedError(
                             "Unable to process unexpected stock for %s: %s" % (picking['id'], moves_extra,))
 
-    def get_picking_conf(self, picking_types, new_cr=True):
+    def get_picking_conf(self, model_name, record_id, picking_types, new_cr=True):
 
         FILENAME = r'^picking_conf_.*\.json$'
         file_ids = self._search(FILENAME)
 
         for file_id in file_ids:
-            process_picking_confirmation.delay(file_id, picking_types, new_cr=new_cr)
+            process_picking_confirmation.delay(self.session, model_name, record_id, file_id, picking_types)
 
 
     def get_stock_levels(self, warehouse_id, new_cr=True):
@@ -693,19 +696,19 @@ def import_stock_levels(session, model_name, record_id, new_cr=True):
     return True
 
 @job
-def import_picking_confirmation(session, model_name, record_id, picking_types, new_cr=True):
+def import_picking_confirmation(session, model_name, record_id, picking_types):
     warehouse = session.browse(model_name, record_id)
     backend_id = warehouse.backend_id.id
     env = get_environment(session, model_name, backend_id)
     warehouse_importer = env.get_connector_unit(BotsWarehouseImport)
-    warehouse_importer.import_picking_confirmation(picking_types=picking_types, new_cr=new_cr)
+    warehouse_importer.import_picking_confirmation(model_name, record_id, picking_types=picking_types)
     return True
 
 @job
-def process_picking_confirmation(session, model_name, record_id, file_id, picking_types, new_cr=True):
+def process_picking_confirmation(session, model_name, record_id, file_id, picking_types):
     warehouse = session.browse(model_name, record_id)
     backend_id = warehouse.backend_id.id
     env = get_environment(session, model_name, backend_id)
     warehouse_importer = env.get_connector_unit(BotsWarehouseImport)
-    warehouse_importer.process_picking_conf(file_id, picking_types=picking_types, new_cr=new_cr)
+    warehouse_importer.process_picking_conf(file_id, picking_types)
     return True
