@@ -130,7 +130,7 @@ class BotsBackend(orm.Model):
             if picking_types:
                 session = ConnectorSession(cr, uid, context=context)
                 import_picking_confirmation.delay(
-                    session, 'bots.warehouse', warehouse.id, picking_types, new_cr=new_cr, priority=5
+                    session, 'bots.warehouse', warehouse.id, picking_types, priority=5
                 )
         return True
 
