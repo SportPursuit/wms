@@ -396,7 +396,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
         ctx = self.session.context.copy()
         ctx['wms_bots'] = True
 
-        with file_to_process(self.session, file_id) as f:
+        with file_to_process(self.session, file_id[0]) as f:
             json_data = json.load(f)
             _cr = self.session.cr
 
