@@ -268,23 +268,26 @@ class StockPickingTracking(orm.Model):
     _name = 'stock.picking.carrier.tracking'
 
 
-    def _get_tracking_details(self, cr, uid, carrier_ids, values):
+    def _get_carriers(self, cr, uid, tracking_refs):
         carrier_obj = self.pool.get('delivery.warehouse.carrier')
 
-        return carrier_obj.read(cr, uid, carrier_ids, values)
+        carrier_ids = [tracking_ref['carrier_id'][0] for tracking_ref in tracking_refs]
+        carriers = {
+            carrier['id']: carrier for carrier in carrier_obj.read(cr, uid, carrier_ids, ['name', 'tracking_link'])
+        }
+
+        return carriers
 
     def _get_magento_tracking_link(self, cr, uid, ids, field_name, arg, context=None):
-        carrier_obj = self.pool.get('delivery.warehouse.carrier')
 
         tracking_refs = self.read(cr, uid, ids, ['carrier_id', 'tracking_reference'])
 
+        carriers = self._get_carriers(cr, uid, tracking_refs)
+
         res = {}
 
-        carrier_ids = [tracking_ref['carrier_id'][0] for tracking_ref in tracking_refs]
-
-
         for tracking_ref in tracking_refs:
-            carrier = carrier_obj.read(cr, uid, tracking_ref['carrier_id'][0], ['name', 'tracking_link'])
+            carrier = carriers['carrier_id'][0]
 
             if carrier['tracking_link']:
                 url = carrier['tracking_link'].replace('[[code]]', tracking_ref['tracking_reference'])
@@ -296,21 +299,22 @@ class StockPickingTracking(orm.Model):
         return res
 
     def _get_tracking_link(self, cr, uid, ids, field_name, arg, context=None):
-        carrier_obj = self.pool.get('delivery.warehouse.carrier')
 
         tracking_refs = self.read(cr, uid, ids, ['carrier_id', 'tracking_reference'])
+
+        carriers = self._get_carriers(cr, uid, tracking_refs)
 
         res = {}
 
         for tracking_ref in tracking_refs:
-            carrier = carrier_obj.read(cr, uid, tracking_ref['carrier_id'][0], ['name', 'tracking_link'])
+            carrier = carriers['carrier_id'][0]
             name = carrier['name']
 
             if carrier['tracking_link']:
                 url = carrier['tracking_link'].replace('[[code]]', tracking_ref['tracking_reference'])
                 url = '<a href="%s" target="_blank">%s - %s</a>' % (url, name, tracking_ref['tracking_reference'])
             else:
-                url = name
+                url = "%s - %s" % (name, tracking_ref['tracking_reference'])
 
             res[tracking_ref['id']] = url
 
