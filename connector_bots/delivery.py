@@ -15,7 +15,7 @@ class delivery_warehouse_carrier(orm.Model):
     def write(self, cr, user, ids, vals, context=None):
         tracking_link = vals.get('tracking_link')
 
-        if tracking_link is not None and '[[code]]' not in tracking_link:
+        if tracking_link and '[[code]]' not in tracking_link:
             raise orm.except_orm(
                 'Error',
                 'Invalid tracking link. It must contain [[code]]'
@@ -27,7 +27,7 @@ class delivery_warehouse_carrier(orm.Model):
     def create(self, cr, user, vals, context=None):
         tracking_link = vals.get('tracking_link')
 
-        if tracking_link is not None and '[[code]]' not in tracking_link:
+        if tracking_link and '[[code]]' not in tracking_link:
             raise orm.except_orm(
                 'Error',
                 'Invalid tracking link. It must contain [[code]]'
