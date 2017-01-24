@@ -345,12 +345,19 @@ class WarehouseAdapter(BotsCRUDAdapter):
         picking_id = picking_ids[0]
 
         tracking_number = picking.get('tracking_number')
+        carrier = picking.get('carrier')
 
-        if not tracking_number:
-            raise JobError('No tracking reference found')
+        if not tracking_number and not carrier:
+            return
+
+        if tracking_number and not carrier:
+            raise JobError('Tracking reference found but no carrier code')
+
+        if carrier and not tracking_number:
+            raise JobError('Carrier code found but no tracking reference')
 
         warehouse_carrier_id = None
-        carrier = picking.get('carrier')
+
         if carrier:
             carrier_ids = carrier_obj.search(cr, uid, [('carrier_code', 'like', carrier)], context=context)
             if carrier_ids:
