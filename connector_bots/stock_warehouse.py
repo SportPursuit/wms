@@ -336,16 +336,16 @@ class WarehouseAdapter(BotsCRUDAdapter):
         self._handle_confirmations(cr, uid, picking_new, prod_confirm, context=None)
         return True
 
-    def _save_tracking(self, cr, uid, picking, picking_ids, context=None):
+    def _save_tracking(self, cr, uid, picking_json, picking_ids, context=None):
         carrier_obj = self.session.pool.get('delivery.warehouse.carrier')
         picking_obj = self.session.pool.get('stock.picking')
         carrier_tracking_obj = self.session.pool.get('stock.picking.carrier.tracking')
 
         assert len(picking_ids) == 1, "We should only be saving tracking info for one delivery order"
-        picking_id = picking_ids[0]
+        picking = picking_obj.browse(cr, uid, picking_ids[0])
 
-        tracking_number = picking.get('tracking_number')
-        carrier = picking.get('carrier')
+        tracking_number = picking_json.get('tracking_number')
+        carrier = picking_json.get('carrier')
 
         if not tracking_number and not carrier:
             return
@@ -367,7 +367,11 @@ class WarehouseAdapter(BotsCRUDAdapter):
             raise JobError('Carrier %s is not recognised by Odoo' % carrier)
 
         # Save the tracking reference on the delivery order
-        picking_obj.write(cr, self.session.uid, picking_id, {'carrier_tracking_ref': tracking_number}, context=context)
+        # If this was only a partial delivery then we want to use the backorder id of the picking as that is the delivery
+        # order that was actually delivered.
+        delivered_picking = picking.backorder_id or picking
+
+        picking_obj.write(cr, uid, delivered_picking.id, {'carrier_tracking_ref': tracking_number}, context=context)
 
         # Save each tracking number on it's own line
         tracking_number = tracking_number.split(',')
@@ -379,14 +383,14 @@ class WarehouseAdapter(BotsCRUDAdapter):
                 raise JobError('Found blank label tracking reference %s for known courier %s' % (number, carrier))
 
             tracking_id = carrier_tracking_obj.create(
-                cr, uid, {'picking_id': picking_id, 'tracking_reference': number, 'carrier_id': warehouse_carrier_id}
+                cr, uid, {'picking_id': delivered_picking.id, 'tracking_reference': number, 'carrier_id': warehouse_carrier_id}
             )
 
             tracking = carrier_tracking_obj.browse(cr, uid, tracking_id)
             tracking_url = tracking.tracking_link
 
             picking_obj.message_post(
-                cr, uid, picking_id, body=_('Tracking Reference: ') + tracking_url, context=context
+                cr, uid, delivered_picking.id, body=_('Tracking Reference: ') + tracking_url, context=context
             )
 
     def get_picking_conf(self, picking_types, new_cr=True):
@@ -503,12 +507,6 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                     type_picking_prod_dict.setdefault(key, {})[product_id] = type_picking_prod_dict.get(key, {}).get(product_id, 0) + qty
                             del move_dict
 
-                            # Handle tracking information
-                            update_ids = [p_id for p_id in picking_ids if p_id != main_picking.openerp_id.id] or picking_ids
-                            self._save_tracking(_cr, self.session.uid, picking, update_ids, context=ctx)
-                            # if tracking_data:
-                            #     picking_obj.write(_cr, self.session.uid, picking_ids, tracking_data, context=ctx)
-
                             # If we are not confirming anything we should just update the tracking info and continue
                             if picking['confirmed'] not in ('Y', 'True', '1', True, 1):
                                 continue
@@ -557,6 +555,10 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
                             for bots_picking, picking_id, split, old_backorder_id in backorders:
                                 self._handle_backorder(_cr, self.session.uid, bots_picking, picking_id, split, old_backorder_id, context=ctx)
+
+                            # Handle tracking information
+                            update_ids = [p_id for p_id in picking_ids if p_id != main_picking.openerp_id.id] or picking_ids
+                            self._save_tracking(_cr, self.session.uid, picking, update_ids, context=ctx)
 
                             # TODO: Handle various opperations for extra stock (Additional done incoming for PO handled above)
                             if moves_extra:
