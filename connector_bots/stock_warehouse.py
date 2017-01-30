@@ -339,6 +339,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
     def _save_tracking(self, cr, uid, picking_json, picking_ids, context=None):
         carrier_obj = self.session.pool.get('delivery.warehouse.carrier')
         picking_obj = self.session.pool.get('stock.picking')
+        sale_obj = self.session.pool.get('sale.order')
         carrier_tracking_obj = self.session.pool.get('stock.picking.carrier.tracking')
 
         assert len(picking_ids) == 1, "We should only be saving tracking info for one delivery order"
@@ -390,7 +391,13 @@ class WarehouseAdapter(BotsCRUDAdapter):
             tracking_url = tracking.tracking_link
 
             picking_obj.message_post(
-                cr, uid, delivered_picking.id, body=_('Tracking Reference: ') + tracking_url, context=context
+                cr, uid, delivered_picking.id, body='Tracking Reference: ' + tracking_url, context=context
+            )
+
+            sale_obj.message_post(
+                cr, uid, delivered_picking.sale_id.id,
+                body='Delivery Order: %s <br><br>Tracking Reference: %s' % (delivered_picking.name, tracking_url),
+                context=context
             )
 
     def get_picking_conf(self, picking_types, new_cr=True):
