@@ -379,10 +379,6 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
         for number in tracking_number:
 
-            if warehouse_carrier_id is not None and number.startswith('BL'):
-                carrier = carrier_obj.read(cr, uid, warehouse_carrier_id, ['name'])['name']
-                raise JobError('Found blank label tracking reference %s for known courier %s' % (number, carrier))
-
             tracking_id = carrier_tracking_obj.create(
                 cr, uid, {'picking_id': delivered_picking.id, 'tracking_reference': number, 'carrier_id': warehouse_carrier_id}
             )
