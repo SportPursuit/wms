@@ -27,6 +27,7 @@ from openerp.addons.connector.session import ConnectorSession
 from openerp.addons.connector.queue.job import job
 from openerp.addons.connector.exception import JobError, NoExternalId
 from openerp.addons.connector.unit.synchronizer import ImportSynchronizer
+from openerp.addons.magentoerpconnect.stock_tracking import export_tracking_number
 
 from .unit.binder import BotsModelBinder
 from .unit.backend_adapter import BotsCRUDAdapter, file_to_process
@@ -336,14 +337,11 @@ class WarehouseAdapter(BotsCRUDAdapter):
         self._handle_confirmations(cr, uid, picking_new, prod_confirm, context=None)
         return True
 
-    def _save_tracking(self, cr, uid, picking_json, picking_ids, context=None):
+    def _save_tracking(self, cr, uid, picking_json, picking, context=None):
         carrier_obj = self.session.pool.get('delivery.warehouse.carrier')
         picking_obj = self.session.pool.get('stock.picking')
         sale_obj = self.session.pool.get('sale.order')
         carrier_tracking_obj = self.session.pool.get('stock.picking.carrier.tracking')
-
-        assert len(picking_ids) == 1, "We should only be saving tracking info for one delivery order"
-        picking = picking_obj.browse(cr, uid, picking_ids[0])
 
         tracking_number = picking_json.get('tracking_number')
         carrier = picking_json.get('carrier')
@@ -367,12 +365,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
         if not warehouse_carrier_id:
             raise JobError('Carrier %s is not recognised by Odoo' % carrier)
 
-        # Save the tracking reference on the delivery order
-        # If this was only a partial delivery then we want to use the backorder id of the picking as that is the delivery
-        # order that was actually delivered.
-        delivered_picking = picking.backorder_id or picking
-
-        picking_obj.write(cr, uid, delivered_picking.id, {'carrier_tracking_ref': tracking_number}, context=context)
+        picking_obj.write(cr, uid, picking.id, {'carrier_tracking_ref': tracking_number}, context=context)
 
         # Save each tracking number on it's own line
         tracking_number = tracking_number.split(',')
@@ -380,19 +373,19 @@ class WarehouseAdapter(BotsCRUDAdapter):
         for number in tracking_number:
 
             tracking_id = carrier_tracking_obj.create(
-                cr, uid, {'picking_id': delivered_picking.id, 'tracking_reference': number, 'carrier_id': warehouse_carrier_id}
+                cr, uid, {'picking_id': picking.id, 'tracking_reference': number, 'carrier_id': warehouse_carrier_id}
             )
 
             tracking = carrier_tracking_obj.browse(cr, uid, tracking_id)
             tracking_url = tracking.tracking_link
 
             picking_obj.message_post(
-                cr, uid, delivered_picking.id, body='Tracking Reference: ' + tracking_url, context=context
+                cr, uid, picking.id, body='Tracking Reference: ' + tracking_url, context=context
             )
 
             sale_obj.message_post(
-                cr, uid, delivered_picking.sale_id.id,
-                body='Delivery Order: %s <br><br>Tracking Reference: %s' % (delivered_picking.name, tracking_url),
+                cr, uid, picking.sale_id.id,
+                body='Delivery Order: %s <br><br>Tracking Reference: %s' % (picking.name, tracking_url),
                 context=context
             )
 
@@ -561,7 +554,17 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
                             # Handle tracking information
                             update_ids = [p_id for p_id in picking_ids if p_id != main_picking.openerp_id.id] or picking_ids
-                            self._save_tracking(_cr, self.session.uid, picking, update_ids, context=ctx)
+                            assert len(update_ids) == 1, "We should only be working with one delivery order"
+                            update_id = update_ids[0]
+
+                            delivery_order = picking_obj.browse(_cr, self.session.uid, update_id, context=ctx)
+
+                            # If this was only a partial delivery then we want to use the backorder id of the picking as that is the delivery
+                            # order that was actually delivered.
+                            delivered_picking = delivery_order.backorder_id or delivery_order
+
+                            self._save_tracking(_cr, self.session.uid, picking, delivered_picking, context=ctx)
+                            export_tracking_number.delay(self.session, 'magento.stock.picking.out', delivered_picking.magento_bind_ids[0].id)
 
                             # TODO: Handle various opperations for extra stock (Additional done incoming for PO handled above)
                             if moves_extra:
