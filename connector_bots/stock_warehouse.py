@@ -389,6 +389,8 @@ class WarehouseAdapter(BotsCRUDAdapter):
                 context=context
             )
 
+        return True
+
     def get_picking_conf(self, picking_types, new_cr=True):
         product_binder = self.get_binder_for_model('bots.product')
         picking_in_binder = self.get_binder_for_model('bots.stock.picking.in')
@@ -563,8 +565,13 @@ class WarehouseAdapter(BotsCRUDAdapter):
                             # order that was actually delivered.
                             delivered_picking = delivery_order.backorder_id or delivery_order
 
-                            self._save_tracking(_cr, self.session.uid, picking, delivered_picking, context=ctx)
-                            export_tracking_number.delay(self.session, 'magento.stock.picking.out', delivered_picking.magento_bind_ids[0].id)
+                            tracking_saved = self._save_tracking(
+                                _cr, self.session.uid, picking, delivered_picking, context=ctx
+                            )
+                            if tracking_saved:
+                                export_tracking_number.delay(
+                                    self.session, 'magento.stock.picking.out', delivered_picking.magento_bind_ids[0].id
+                                )
 
                             # TODO: Handle various opperations for extra stock (Additional done incoming for PO handled above)
                             if moves_extra:
