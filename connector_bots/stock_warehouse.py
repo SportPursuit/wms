@@ -350,10 +350,10 @@ class WarehouseAdapter(BotsCRUDAdapter):
             return
 
         if tracking_number and not carrier:
-            raise JobError('Tracking reference found but no carrier code')
+            raise Exception('Tracking reference found but no carrier code')
 
         if carrier and not tracking_number:
-            raise JobError('Carrier code found but no tracking reference')
+            raise Exception('Carrier code found but no tracking reference')
 
         warehouse_carrier_id = None
 
