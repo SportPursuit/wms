@@ -43,7 +43,7 @@ def export_picking_crossdock(session, model_name, record_id):
         picking_exporter = env.get_connector_unit(BotsPickingExport)
         res = picking_exporter.run_crossdock(record_id)
     except IntegrityError, e:
-        raise RetryableJobError("IntegrityError raised, retrying." % e)
+        raise RetryableJobError("IntegrityError raised, retrying. | Error: %s" % e)
 
     return res
 
@@ -149,7 +149,8 @@ class PrismPickingOutAdapter(StockPickingOutAdapter):
                             }],
                     },
                 }
-        FILENAME = 'cross_dock_%s.json'
+        PREFIX = 'cross_dock_%s' % picking_id
+        FILENAME = PREFIX + '_%s.json'
         return data, FILENAME
 
     def create_crossdock(self, picking_id):
