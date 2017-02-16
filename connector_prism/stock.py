@@ -18,24 +18,16 @@
 #
 ##############################################################################
 
-from openerp.osv import orm, fields, osv
-from openerp import pooler, netsvc, SUPERUSER_ID
-from openerp.tools.translate import _
-from openerp.tools.misc import DEFAULT_SERVER_DATETIME_FORMAT
+import json
+from datetime import datetime
 
-from openerp.addons.connector.session import ConnectorSession
+from openerp.tools.translate import _
 from openerp.addons.connector.queue.job import job
 from openerp.addons.connector.exception import JobError, NoExternalId, MappingError
-
 from openerp.addons.connector_bots.backend import bots
 from openerp.addons.connector_bots.connector import get_environment
-
-import json
-import traceback
-from datetime import datetime
-import re
-
 from openerp.addons.connector_bots.stock import (StockPickingOutAdapter, StockPickingInAdapter, BotsPickingExport)
+
 
 @job
 def export_picking_crossdock(session, model_name, record_id):
