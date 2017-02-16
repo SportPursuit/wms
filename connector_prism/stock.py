@@ -21,9 +21,11 @@
 import json
 from datetime import datetime
 
+from psycopg2 import IntegrityError
+
 from openerp.tools.translate import _
 from openerp.addons.connector.queue.job import job
-from openerp.addons.connector.exception import JobError, NoExternalId, MappingError
+from openerp.addons.connector.exception import JobError, NoExternalId, MappingError, RetryableJobError
 from openerp.addons.connector_bots.backend import bots
 from openerp.addons.connector_bots.connector import get_environment
 from openerp.addons.connector_bots.stock import (StockPickingOutAdapter, StockPickingInAdapter, BotsPickingExport)
@@ -31,15 +33,20 @@ from openerp.addons.connector_bots.stock import (StockPickingOutAdapter, StockPi
 
 @job
 def export_picking_crossdock(session, model_name, record_id):
-    picking = session.browse(model_name, record_id)
-    if picking.state == 'done' and session.search(model_name, [('backorder_id', '=', picking.openerp_id.id)]):
-        # We are an auto-created back order completed - ignore this export
-        return "Not exporting crossdock for auto-created done picking backorder %s" % (picking.name,)
-    backend_id = picking.backend_id.id
-    env = get_environment(session, model_name, backend_id)
-    picking_exporter = env.get_connector_unit(BotsPickingExport)
-    res = picking_exporter.run_crossdock(record_id)
+    try:
+        picking = session.browse(model_name, record_id)
+        if picking.state == 'done' and session.search(model_name, [('backorder_id', '=', picking.openerp_id.id)]):
+            # We are an auto-created back order completed - ignore this export
+            return "Not exporting crossdock for auto-created done picking backorder %s" % (picking.name,)
+        backend_id = picking.backend_id.id
+        env = get_environment(session, model_name, backend_id)
+        picking_exporter = env.get_connector_unit(BotsPickingExport)
+        res = picking_exporter.run_crossdock(record_id)
+    except IntegrityError, e:
+        raise RetryableJobError("IntegrityError raised, retrying." % e)
+
     return res
+
 
 @bots(replacing=StockPickingInAdapter)
 class PrismPickingInAdapter(StockPickingInAdapter):
