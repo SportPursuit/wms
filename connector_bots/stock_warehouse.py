@@ -313,27 +313,40 @@ class WarehouseAdapter(BotsCRUDAdapter):
         if not purchase:
             raise NotImplementedError("Unable to process unexpected incoming stock for %s: Not linked to a PO" % (picking_id,))
 
-        picking_new_data = purchase_obj._prepare_order_picking(cr, uid, purchase, context=context)
-        picking_new_data.update({'wms_disable_events': True})
-        picking_new_id = picking_obj.create(cr, uid, picking_new_data, context=context)
-
         prod_confirm = {}
-        for product_id, qty in product_qtys:
-            pol_data = purchase_line_obj._generate_purchase_line(cr, uid, product_id, qty, purchase.pricelist_id.id, purchase.partner_id.id, purchase.minimum_planned_date, context=context)
-            pol_data.update({'order_id': purchase.id,
-                             'state': 'confirmed'})
-            purchase_line_id = purchase_line_obj.create(cr, uid, pol_data, context=context)
-            purchase_line = purchase_line_obj.browse(cr, uid, purchase_line_id, context=context)
+        for product_id, old_move_id, qty in product_qtys:
+            if old_move_id:
+                exst_pol = purchase_line_obj.search(cr, uid, [('product_id', '=', product_id),('order_id', '=', purchase.id)], context=context)
+                # Handling extra qty in pol
+                if not exst_pol:
+                    raise NotImplementedError("Unable to process unexpected incoming stock for Picking %s and Product %s: Not linked to a Purchase order line" % (picking_id,product_id))
+                pol_obj = purchase_line_obj.browse(cr, uid, exst_pol[0], context=context)
+                total_qty = pol_obj.product_qty + qty
+                purchase_line_obj.write(cr, uid, [pol_obj.id], {'product_qty': total_qty}, context=context)
 
-            move_data = purchase_obj._prepare_order_line_move(cr, uid, purchase, purchase_line, picking_new_id, context=context)
-            move_id = move_obj.create(cr, uid, move_data, context=context)
-            prod_confirm[move_id] = qty
+                # Handling extra qty in move
+                move_obj.write(cr, uid, [old_move_id], {'product_qty': total_qty}, context=context)
 
-        picking_obj.draft_force_assign(cr, uid, [picking_new_id])
-        picking_obj.write(cr, uid, [picking_new_id], {'wms_disable_events': False}, context=context)
-        picking_new = picking_obj.browse(cr, uid, picking_new_id, context=context)
+            else:
+                picking_new_data = purchase_obj._prepare_order_picking(cr, uid, purchase, context=context)
+                picking_new_data.update({'wms_disable_events': True})
+                picking_new_id = picking_obj.create(cr, uid, picking_new_data, context=context)
 
-        self._handle_confirmations(cr, uid, picking_new, prod_confirm, context=None)
+                pol_data = purchase_line_obj._generate_purchase_line(cr, uid, product_id, qty, purchase.pricelist_id.id, purchase.partner_id.id, purchase.minimum_planned_date, context=context)
+                pol_data.update({'order_id': purchase.id,
+                                 'state': 'confirmed'})
+                purchase_line_id = purchase_line_obj.create(cr, uid, pol_data, context=context)
+                purchase_line = purchase_line_obj.browse(cr, uid, purchase_line_id, context=context)
+
+                move_data = purchase_obj._prepare_order_line_move(cr, uid, purchase, purchase_line, picking_new_id, context=context)
+                move_id = move_obj.create(cr, uid, move_data, context=context)
+                prod_confirm[move_id] = qty
+
+                picking_obj.draft_force_assign(cr, uid, [picking_new_id])
+                picking_obj.write(cr, uid, [picking_new_id], {'wms_disable_events': False}, context=context)
+                picking_new = picking_obj.browse(cr, uid, picking_new_id, context=context)
+
+                self._handle_confirmations(cr, uid, picking_new, prod_confirm, context=None)
         return True
 
     def _get_tracking(self, cr, uid, picking, context=None):
@@ -480,11 +493,13 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                                                 ], context=ctx))
 
                                 # Distribute qty over the moves, sperating by type - Use SQL to avoid slow name_get function
+                                exst_move_id = False
                                 if move_ids:
                                     _cr.execute("""select id "id", picking_id "picking_id", product_qty "product_qty", product_id "product_id"
                                                 from stock_move where id in %s """, [tuple(move_ids),])
                                     res_dict = dict([(res['id'], res) for res in _cr.dictfetchall()]) # Convert to a dict to read them back in the correct order
                                     for move_id in move_ids:
+                                        exst_move_id = move_id
                                         move = res_dict[move_id]
                                         key = (move['id'], move['picking_id'], move['product_id'])
                                         if qty and sum(move_dict.get(key, {}).values()) < move['product_qty']:
@@ -496,7 +511,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
                                 # No moves found or unallocated qty, handle these separatly if possible
                                 if qty:
-                                    moves_extra.setdefault(ptype, []).append((product_id, qty))
+                                    moves_extra.setdefault(ptype, []).append((product_id, exst_move_id, qty))
 
                             # Group moves and qtys by pickings and type
                             type_picking_move_dict = {} # Dicts of move_id and qty
