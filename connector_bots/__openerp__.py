@@ -49,6 +49,7 @@ data format for the external EDI system.
      'purchase_view.xml',
      'bots_menu.xml',
      'security/ir.model.access.csv',
+     'delivery_view.xml'
  ],
  'installable': True,
 }

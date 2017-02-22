@@ -20,6 +20,8 @@
 
 import test_picking
 import test_inventory
+import test_tracking
+
 
 fast_suite = [
 ]
@@ -27,4 +29,5 @@ fast_suite = [
 checks = [
     test_picking,
     test_inventory,
+    test_tracking
 ]
