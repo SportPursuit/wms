@@ -416,7 +416,8 @@ class WarehouseAdapter(BotsCRUDAdapter):
         res = []
         ctx = self.session.context.copy()
         ctx['wms_bots'] = True
-
+        ctx["CALCULATE_STOCK_DATE"] = False
+        products_external_dict = {}
         for file_id in file_ids:
             try:
                 with file_to_process(self.session, file_id[0], new_cr=new_cr) as f:
@@ -452,6 +453,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                             
                             product_external_ids = [line['product'] for line in picking['line']]
                             product_external_dict = product_binder.to_openerp_multi(product_external_ids)
+                            products_external_dict.update(product_external_dict)
                             for line in picking['line']:
                                 # Handle products and qtys
                                 product_id = product_external_dict.get(line['product'], False)
@@ -597,7 +599,10 @@ class WarehouseAdapter(BotsCRUDAdapter):
         # If we hit any errors, fail the job with a list of all errors now
         if exceptions:
             raise JobError('The following exceptions were encountered:\n\n%s' % ('\n\n'.join(exceptions),))
-
+        prod_ids = products_external_dict.values()    
+        if prod_ids:
+            ctx["CALCULATE_STOCK_DATE"] = True
+            self.session.pool.get('product.shop.attributes').calculate_stock_date(self.session.cr, self.session.uid, prod_ids, context=ctx)
         return res
 
     def get_stock_levels(self, warehouse_id, new_cr=True):
