@@ -196,6 +196,7 @@ class StockPickingOut(orm.Model):
                 help="Scheduled time for the shipment to be processed"
             ),
             'carrier_tracking_ref': fields.char('Carrier Tracking Ref', size=128),
+            'tracking_references': fields.one2many('stock.picking.carrier.tracking', 'picking_id', 'Tracking References'),
             'prio_id' : fields.many2one('order.prio', 'Priority', help='The priority code to assign to this picking. If blank, will default to \'4\'.', readonly=True, states={'draft':[('readonly',False)],'confirmed':[('readonly',False)]}),
         }
 
@@ -262,14 +263,79 @@ class StockPickingOut(orm.Model):
         res = super(StockPickingOut, self).unlink(cr, uid, ids, context=context)
         return res
 
+
+class StockPickingTracking(orm.Model):
+    _name = 'stock.picking.carrier.tracking'
+
+
+    def _get_carriers_for_references(self, cr, uid, tracking_refs):
+        carrier_obj = self.pool.get('delivery.warehouse.carrier')
+
+        carrier_ids = [tracking_ref['carrier_id'][0] for tracking_ref in tracking_refs]
+        mapping = {
+            tracking_refs['id']: carrier for carrier in carrier_obj.read(cr, uid, carrier_ids, ['name', 'tracking_link'])
+        }
+
+        return mapping
+
+    def _get_magento_tracking_link(self, cr, uid, ids, field_name, arg, context=None):
+
+        tracking_refs = self.browse(cr, uid, ids, context=context)
+
+        res = {}
+
+        for tracking_ref in tracking_refs:
+            carrier = tracking_ref.carrier_id
+
+            if carrier.tracking_link:
+                url = carrier.tracking_link.replace('[[code]]', tracking_ref.tracking_reference)
+            else:
+                url = ''
+
+            res[tracking_ref.id] = url
+
+        return res
+
+    def _get_tracking_link(self, cr, uid, ids, field_name, arg, context=None):
+
+        tracking_refs = self.browse(cr, uid, ids, context=context)
+
+        res = {}
+
+        for tracking_ref in tracking_refs:
+            carrier = tracking_ref.carrier_id
+
+            if carrier.tracking_link:
+                url = carrier.tracking_link.replace('[[code]]', tracking_ref.tracking_reference)
+                url = '<a href="%s" target="_blank">%s - %s</a>' % (url, carrier.name, tracking_ref.tracking_reference)
+            else:
+                url = "%s - %s" % (carrier.name, tracking_ref.tracking_reference)
+
+            res[tracking_ref.id] = url
+
+        return res
+
+    _columns = {
+        'picking_id': fields.many2one('stock.picking', 'Picking', select=True, required=True),
+        'carrier_id': fields.many2one('delivery.warehouse.carrier', 'Warehouse Carrier', select=True, required=True),
+        'tracking_reference': fields.char('Carrier Tracking Ref', size=128, required=True),
+        'tracking_link': fields.function(_get_tracking_link, type='str', string='Tracking Link', readonly=True),
+        'magento_tracking_link': fields.function(_get_magento_tracking_link, type='str', string='Tracking Link', readonly=True)
+    }
+
+
+StockPickingTracking()
+
+
 class StockPicking(orm.Model):
     _inherit = 'stock.picking'
 
     _columns = {
-            'bots_customs': fields.boolean('Bonded Goods', help='If this picking is subject to duties.', states={'done':[('readonly', True)], 'cancel':[('readonly',True)], 'assigned':[('readonly',True)]}),
-            'carrier_tracking_ref': fields.char('Carrier Tracking Ref', size=128),
-            'prio_id' : fields.many2one('order.prio', 'Priority', help='The priority code to assign to this picking. If blank, will default to \'4\'.', readonly=True, states={'draft':[('readonly',False)],'confirmed':[('readonly',False)]}),
-        }
+        'bots_customs': fields.boolean('Bonded Goods', help='If this picking is subject to duties.', states={'done':[('readonly', True)], 'cancel':[('readonly',True)], 'assigned':[('readonly',True)]}),
+        'carrier_tracking_ref': fields.char('Carrier Tracking Ref', size=128),
+        'prio_id' : fields.many2one('order.prio', 'Priority', help='The priority code to assign to this picking. If blank, will default to \'4\'.', readonly=True, states={'draft':[('readonly',False)],'confirmed':[('readonly',False)]}),
+        'tracking_references': fields.one2many('stock.picking.carrier.tracking', 'picking_id', 'Tracking References')
+    }
 
     def _get_default_prio(self, cr, uid, context=None):
         # On deployment, the initial data is not populated at this point.
@@ -1085,7 +1151,11 @@ class BotsPickingExport(ExportSynchronizer):
 
 @on_record_create(model_names='bots.stock.picking.out')
 def delay_export_picking_out(session, model_name, record_id, vals):
-    export_picking.delay(session, model_name, record_id, priority=10)
+    # By default delay for 15 mins (configurable) to allow multiple moves becoming available within a short time to be exported together
+    delay = session.pool.get('ir.config_parameter').get_param(session.cr, session.uid, 'connector.bots.picking_out_delay', default=900)
+    if type(delay) in (str, unicode):
+        delay = delay.isdigit() and int(delay) or 900
+    export_picking.delay(session, model_name, record_id, eta=delay, priority=10)
 
 @on_record_create(model_names='bots.stock.picking.in')
 def delay_export_picking_in(session, model_name, record_id, vals):
