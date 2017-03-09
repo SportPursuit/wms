@@ -412,6 +412,16 @@ class WarehouseAdapter(BotsCRUDAdapter):
                     picking_document['id'], main_picking.state, confirmation_type))
 
         return True
+        
+    def _check_incoming_shipments(self, cr, uid, picking_id, context=None):
+        stock_picking_obj = self.session.pool.get('stock.picking')
+        if picking_id:
+            stock_picking = stock_picking_obj.browse(cr, uid, picking_id, context=context)
+            if stock_picking.purchase_id:
+                picking_ids = stock_picking_obj.search(cr, uid, [('purchase_id','=',stock_picking.purchase_id.id),('type','=','in'), ('state','not in', ('done','cancel'))], context=context)
+                if not picking_ids:
+                    raise NotImplementedError("Unable to process unexpected incoming stock on PO Number '%s'" % (stock_picking.purchase_id.name))
+        return True
 
     def get_picking_conf(self, picking_types, new_cr=True):
         product_binder = self.get_binder_for_model('bots.product')
@@ -456,9 +466,16 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
                             # Map the picking by the Bots ID/Order Number - This is used if mapping fails with the move ids
                             main_picking_id = picking_binder.to_openerp(picking['id'])
+                            #raise osv.except_osv(_('Error !'), _('Unable to find active workflow workitem for procurement id %s') % (proc_id,))
+                            
                             if not main_picking_id:
                                 raise NoExternalId("Picking %s could not be found in OpenERP" % (picking['id'],))
                             main_picking = bots_picking_obj.browse(_cr, self.session.uid, main_picking_id, context=ctx)
+                            
+                            #Validate for Any Incoming Shipments are present or not
+                            if picking['type'] == 'in':
+                                self._check_incoming_shipments(_cr, self.session.uid, main_picking.openerp_id.id, context=ctx)
+                                
                             picking_ids = [main_picking.openerp_id.id]
                             ctx.update({'company_id' : main_picking.openerp_id.company_id.id})
 
