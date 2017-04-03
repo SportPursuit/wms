@@ -27,6 +27,7 @@ from openerp.addons.connector.session import ConnectorSession
 from openerp.addons.connector.queue.job import job
 from openerp.addons.connector.exception import JobError, NoExternalId
 from openerp.addons.connector.unit.synchronizer import ImportSynchronizer
+from openerp.addons.magentoerpconnect.stock_tracking import export_tracking_number
 
 from .unit.binder import BotsModelBinder
 from .unit.backend_adapter import BotsCRUDAdapter, file_to_process
@@ -40,6 +41,10 @@ from datetime import datetime
 from psycopg2 import OperationalError
 
 file_lock_msg = 'could not obtain lock on row in relation "bots_file"'
+
+NOT_TRACKED = 'NOT_TRACKED'
+BLANK_LABEL = 'BL'
+
 
 class BotsWarehouse(orm.Model):
     _name = 'bots.warehouse'
@@ -186,6 +191,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                     procurement_id = procurement_obj.search(cr, uid, [('move_id', '=', move.id)], context=context)
                     new_move = stock_move_obj.copy(cr, uid, move.id, {'picking_id': new_picking_id}, context=context)
                     moves.append(new_move)
+                    new_procurement_id = False
                     if procurement_id:
                         procurement = procurement_obj.browse(cr, uid, procurement_id[0], context=context)
                         cut_off = procurement.purchase_id and getattr(procurement.purchase_id, 'bots_cut_off', False) and procurement.purchase_id.bots_cut_off
@@ -204,6 +210,16 @@ class WarehouseAdapter(BotsCRUDAdapter):
                             sale_line_obj.write(cr, uid, sol_ids, {'procurement_id': new_procurement_id}, context=context)
 
                     move.action_cancel()
+                    cr.execute('SAVEPOINT procurement')
+                    try: # Attempt to remove old procurement and allocate new one if there is space.
+                        if new_procurement_id and procurement.purchase_id: # Add the new procurement back into the same PO if it came from one
+                            procurement_obj.write(cr, uid, [new_procurement_id], {'purchase_id': procurement.purchase_id.id}, context=context)
+                            wf_service.trg_validate(uid, 'procurement.order', new_procurement_id, 'button_check', cr)
+                    except osv.except_osv, e: # No space, so we just cancel the old procurement and continue
+                        cr.execute('ROLLBACK TO SAVEPOINT procurement')
+                    finally:
+                        cr.execute('RELEASE SAVEPOINT procurement')
+
                     if procurement_id and cut_off:
                         procurement.purchase_id.write({'bots_cut_off': True})
 
@@ -325,45 +341,62 @@ class WarehouseAdapter(BotsCRUDAdapter):
         self._handle_confirmations(cr, uid, picking_new, prod_confirm, context=None)
         return True
 
-    def _get_tracking(self, cr, uid, picking, contect=None):
-        carrier_obj = self.session.pool.get('delivery.carrier')
+    def _save_tracking(self, cr, uid, picking_json, picking, context=None):
+        carrier_obj = self.session.pool.get('delivery.warehouse.carrier')
+        picking_obj = self.session.pool.get('stock.picking')
+        sale_obj = self.session.pool.get('sale.order')
+        carrier_tracking_obj = self.session.pool.get('stock.picking.carrier.tracking')
 
-        tracking_number = False
-        carrier_id = False
-        tracking_data = {}
+        tracking_number = picking_json.get('tracking_number')
+        carrier = picking_json.get('carrier')
 
-        if picking.get('tracking_number'):
-            tracking_number = picking.get('tracking_number')
-        else:
-            tracking_numbers = {}
-            for tracking in picking.get('references', []):
-                # Get the first sane tracking reference
-                tracking_code = tracking.get('id') or tracking.get('desc')
-                tracking_ref = tracking.get('desc') or tracking.get('id')
-                if tracking.get('type') == 'consignment' and tracking_ref and tracking_ref not in ('N/A',):
-                    tracking_numbers['consignment'] = tracking_ref
-                elif ((tracking.get('type') == 'purchase_ref' and picking['type'] == 'in') or \
-                        (tracking.get('type') == 'shipping_ref' and picking['type'] == 'out')) and \
-                        tracking_code and tracking_code not in ('N/A',):
-                    tracking_numbers['pick_ref'] = tracking_code
-                elif tracking_code and tracking_code not in ('N/A',):
-                    tracking_numbers['other_ref'] = tracking_code
-            tracking_number = tracking_numbers.get('consignment') or tracking_numbers.get('pick_ref') or tracking_numbers.get('other_ref') or False
+        if not tracking_number and not carrier:
+            return
 
-        carrier = picking.get('service_carrier') or picking.get('carrier')
-        if carrier:
-            carrier_ids = carrier_obj.search(cr, uid, [('name', 'like', carrier),], context=contect)
-            if carrier_ids:
-                carrier_id = carrier_ids[0]
+        if tracking_number and not carrier:
+            if tracking_number == NOT_TRACKED:
+                carrier = BLANK_LABEL
             else:
-                tracking_number = "%s: %s" % (carrier, tracking_number or '')
+                raise Exception('Tracking reference found but no carrier code')
 
-        if tracking_number:
-            tracking_data['carrier_tracking_ref'] = tracking_number
-        if carrier_id:
-            tracking_data['carrier_id'] = carrier_id
+        if carrier and not tracking_number:
+            raise Exception('Carrier code found but no tracking reference')
 
-        return tracking_data
+        warehouse_carrier_id = None
+
+        if carrier:
+            carrier_ids = carrier_obj.search(cr, uid, [('carrier_code', 'like', carrier)], context=context)
+            if carrier_ids:
+                warehouse_carrier_id = carrier_ids[0]
+
+        if not warehouse_carrier_id:
+            raise JobError('Carrier %s is not recognised by Odoo' % carrier)
+
+        picking_obj.write(cr, uid, picking.id, {'carrier_tracking_ref': tracking_number}, context=context)
+
+        # Save each tracking number on it's own line
+        tracking_number = tracking_number.split(',')
+
+        for number in tracking_number:
+
+            tracking_id = carrier_tracking_obj.create(
+                cr, uid, {'picking_id': picking.id, 'tracking_reference': number, 'carrier_id': warehouse_carrier_id}
+            )
+
+            tracking = carrier_tracking_obj.browse(cr, uid, tracking_id)
+            tracking_url = tracking.tracking_link
+
+            picking_obj.message_post(
+                cr, uid, picking.id, body='Tracking Reference: ' + tracking_url, context=context
+            )
+
+            sale_obj.message_post(
+                cr, uid, picking.sale_id.id,
+                body='Delivery Order: %s <br><br>Tracking Reference: %s' % (picking.name, tracking_url),
+                context=context
+            )
+
+        return True
 
     def get_picking_conf(self, picking_types, new_cr=True):
         product_binder = self.get_binder_for_model('bots.product')
@@ -430,8 +463,6 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                 ignore_states = ('cancel', 'draft', 'done', 'confirmed')
                                 if ptype == 'CANCELLED':
                                     ignore_states = ('draft', 'done')
-                                elif ptype == 'DONE':
-                                    ignore_states = ('cancel', 'draft', 'confirmed')
 
                                 # Attempt to find moves for this line
                                 move_ids = [int(x) for x in line.get('move_ids', '').split(',') if x]
@@ -478,11 +509,6 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                     type_picking_move_dict.setdefault(key, {})[move_id] = type_picking_move_dict.get(key, {}).get(move_id, 0) + qty
                                     type_picking_prod_dict.setdefault(key, {})[product_id] = type_picking_prod_dict.get(key, {}).get(product_id, 0) + qty
                             del move_dict
-
-                            # Handle tracking information
-                            tracking_data = self._get_tracking(_cr, self.session.uid, picking, contect=ctx)
-                            if tracking_data:
-                                picking_obj.write(_cr, self.session.uid, picking_ids, tracking_data, context=ctx)
 
                             # If we are not confirming anything we should just update the tracking info and continue
                             if picking['confirmed'] not in ('Y', 'True', '1', True, 1):
@@ -532,6 +558,25 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
                             for bots_picking, picking_id, split, old_backorder_id in backorders:
                                 self._handle_backorder(_cr, self.session.uid, bots_picking, picking_id, split, old_backorder_id, context=ctx)
+
+                            # Handle tracking information
+                            update_ids = [p_id for p_id in picking_ids if p_id != main_picking.openerp_id.id] or picking_ids
+                            assert len(update_ids) == 1, "We should only be working with one delivery order"
+                            update_id = update_ids[0]
+
+                            delivery_order = picking_obj.browse(_cr, self.session.uid, update_id, context=ctx)
+
+                            # If this was only a partial delivery then we want to use the backorder id of the picking as that is the delivery
+                            # order that was actually delivered.
+                            delivered_picking = delivery_order.backorder_id or delivery_order
+
+                            tracking_saved = self._save_tracking(
+                                _cr, self.session.uid, picking, delivered_picking, context=ctx
+                            )
+                            if tracking_saved:
+                                export_tracking_number.delay(
+                                    self.session, 'magento.stock.picking.out', delivered_picking.magento_bind_ids[0].id
+                                )
 
                             # TODO: Handle various opperations for extra stock (Additional done incoming for PO handled above)
                             if moves_extra:

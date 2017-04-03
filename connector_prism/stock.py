@@ -18,36 +18,35 @@
 #
 ##############################################################################
 
-from openerp.osv import orm, fields, osv
-from openerp import pooler, netsvc, SUPERUSER_ID
+import json
+from datetime import datetime
+
+from psycopg2 import IntegrityError
+
 from openerp.tools.translate import _
-from openerp.tools.misc import DEFAULT_SERVER_DATETIME_FORMAT
-
-from openerp.addons.connector.session import ConnectorSession
 from openerp.addons.connector.queue.job import job
-from openerp.addons.connector.exception import JobError, NoExternalId, MappingError
-
+from openerp.addons.connector.exception import JobError, NoExternalId, MappingError, RetryableJobError
 from openerp.addons.connector_bots.backend import bots
 from openerp.addons.connector_bots.connector import get_environment
-
-import json
-import traceback
-from datetime import datetime
-import re
-
 from openerp.addons.connector_bots.stock import (StockPickingOutAdapter, StockPickingInAdapter, BotsPickingExport)
+
 
 @job
 def export_picking_crossdock(session, model_name, record_id):
-    picking = session.browse(model_name, record_id)
-    if picking.state == 'done' and session.search(model_name, [('backorder_id', '=', picking.openerp_id.id)]):
-        # We are an auto-created back order completed - ignore this export
-        return "Not exporting crossdock for auto-created done picking backorder %s" % (picking.name,)
-    backend_id = picking.backend_id.id
-    env = get_environment(session, model_name, backend_id)
-    picking_exporter = env.get_connector_unit(BotsPickingExport)
-    res = picking_exporter.run_crossdock(record_id)
+    try:
+        picking = session.browse(model_name, record_id)
+        if picking.state == 'done' and session.search(model_name, [('backorder_id', '=', picking.openerp_id.id)]):
+            # We are an auto-created back order completed - ignore this export
+            return "Not exporting crossdock for auto-created done picking backorder %s" % (picking.name,)
+        backend_id = picking.backend_id.id
+        env = get_environment(session, model_name, backend_id)
+        picking_exporter = env.get_connector_unit(BotsPickingExport)
+        res = picking_exporter.run_crossdock(record_id)
+    except IntegrityError, e:
+        raise RetryableJobError("IntegrityError raised, retrying. | Error: %s" % e)
+
     return res
+
 
 @bots(replacing=StockPickingInAdapter)
 class PrismPickingInAdapter(StockPickingInAdapter):
@@ -91,7 +90,7 @@ class PrismPickingOutAdapter(StockPickingOutAdapter):
         res = super(PrismPickingOutAdapter, self).create(picking_id)
         picking = self.session.browse('bots.stock.picking.out', picking_id)
         if picking.backend_id.feat_picking_out_crossdock and picking.type == 'out':
-            export_picking_crossdock.delay(self.session, 'bots.stock.picking.out', picking_id)
+            export_picking_crossdock.delay(self.session, 'bots.stock.picking.out', picking_id, priority=10)
         return res
 
     def _prepare_crossdock(self, picking_id):
@@ -150,7 +149,8 @@ class PrismPickingOutAdapter(StockPickingOutAdapter):
                             }],
                     },
                 }
-        FILENAME = 'cross_dock_%s.json'
+        PREFIX = 'cross_dock_%s' % picking_id
+        FILENAME = PREFIX + '_%s.json'
         return data, FILENAME
 
     def create_crossdock(self, picking_id):
