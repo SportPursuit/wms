@@ -42,6 +42,10 @@ from psycopg2 import OperationalError
 
 file_lock_msg = 'could not obtain lock on row in relation "bots_file"'
 
+NOT_TRACKED = 'NOT_TRACKED'
+BLANK_LABEL = 'BL'
+
+
 class BotsWarehouse(orm.Model):
     _name = 'bots.warehouse'
     _inherit = 'bots.binding'
@@ -350,7 +354,10 @@ class WarehouseAdapter(BotsCRUDAdapter):
             return
 
         if tracking_number and not carrier:
-            raise Exception('Tracking reference found but no carrier code')
+            if tracking_number == NOT_TRACKED:
+                carrier = BLANK_LABEL
+            else:
+                raise Exception('Tracking reference found but no carrier code')
 
         if carrier and not tracking_number:
             raise Exception('Carrier code found but no tracking reference')
