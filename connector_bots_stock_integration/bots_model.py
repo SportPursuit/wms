@@ -43,7 +43,7 @@ class BotsBackend(orm.Model):
         session = ConnectorSession(cr, uid, context=context)
 
         for backend_id in ids:
-            import_supplier_stock.delay(session, 'Supplier Stock', backend_id, priority=5)
+            import_supplier_stock.delay(session, 'bots.backend.supplier.feed', backend_id, priority=5)
 
         return True
 
