@@ -49,11 +49,11 @@ _logger = logging.getLogger(__name__)
 class BotsStockImport(ImportSynchronizer):
     _model_name = ['bots.product']
 
-    def import_supplier_stock(self, new_cr=True):
+    def import_supplier_stock(self):
         """
         Import the picking confirmation from Bots
         """
-        self.backend_adapter.get_supplier_stock(new_cr=new_cr)
+        self.backend_adapter.get_supplier_stock()
 
 @bots
 class StockAdapter(BotsCRUDAdapter):
@@ -96,7 +96,7 @@ class StockAdapter(BotsCRUDAdapter):
         return False
                         
 
-    def get_supplier_stock(self, new_cr=True):
+    def get_supplier_stock(self):
         cr = pooler.get_db(self.session.cr.dbname).cursor()
         FILENAME = r'^.*\.csv$'
         file_ids = self._search(FILENAME)
@@ -109,7 +109,7 @@ class StockAdapter(BotsCRUDAdapter):
             err_supplier = []
             prod_ids = {}
             vendor = False
-            with file_to_process(self.session, file_id[0], new_cr=new_cr) as f:                
+            with file_to_process(self.session, file_id[0]) as f:
                 file = file_obj.browse(cr, SUPERUSER_ID, file_id[0])
                 with open(file.full_path, "rb") as csv_file:
                     reader = csv.DictReader(csv_file)
@@ -150,14 +150,8 @@ class StockAdapter(BotsCRUDAdapter):
         return True
 
 @job
-def import_supplier_stock(session, name, backend_id, new_cr=True):
+def import_supplier_stock(session, name, backend_id):
     env = get_environment(session, 'bots.product', backend_id)
     stock_importer = env.get_connector_unit(BotsStockImport)
-    stock_importer.import_supplier_stock(new_cr=new_cr)
+    stock_importer.import_supplier_stock()
     return True
-
-
-    
-
-
-    

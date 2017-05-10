@@ -18,37 +18,32 @@
 #
 ##############################################################################
 
-from openerp.osv import fields, orm
-from openerp.addons.connector.queue.job import job
-from openerp.addons.connector_bots.connector import get_environment
-from openerp.addons.connector.unit.synchronizer import ExportSynchronizer
+from openerp.osv import orm
 from openerp.addons.connector.session import ConnectorSession
 
-from openerp.addons.connector_bots.unit.backend_adapter import BotsCRUDAdapter
-from openerp.addons.connector_bots.backend import bots
-
 from .supplier_stock import import_supplier_stock
-
-import json
-from datetime import datetime
 
 
 class BotsBackend(orm.Model):
     _inherit = 'bots.backend'    
 
-    def _scheduler_import_supplier_stock(self, cr, uid, domain=None, new_cr=True, context=None):
-        self._bots_backend(cr, uid, self.import_supplier_stock, domain=domain, context=context)
-        
+    def _scheduler_import_supplier_stock(self, cr, uid, domain=None, context=None):
+
+        domain = domain or [('name', '=', 'Supplier Stock')]
+        try:
+            backend_id = self.search(cr, uid, domain, context=context)[0]
+        except IndexError:
+            raise Exception('Bots backend for Supplier Stock not found')
+        else:
+            self.import_supplier_stock(cr, uid, backend_id, context=context)
+
     def import_supplier_stock(self, cr, uid, ids, new_cr=True, context=None):
         """ Import Supplier Stock """
-        if not hasattr(ids, '__iter__'):
-            ids = [ids]
-        backend_ids = self.search(cr, uid, [('name', '=', 'SUPPLIERS STOCK')], context=context)
-        backend_id = backend_ids and backend_ids[0] or False
-        if backend_id:
-           session = ConnectorSession(cr, uid, context=context)
-           import_supplier_stock.delay(
-                    session, 'Supplier Stock',backend_id, new_cr=new_cr, priority=5
-                )
+
+        session = ConnectorSession(cr, uid, context=context)
+
+        for backend_id in ids:
+            import_supplier_stock.delay(session, 'Supplier Stock', backend_id, priority=5)
+
         return True
 
