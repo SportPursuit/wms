@@ -142,7 +142,7 @@ class BotsBackend(orm.Model):
                     return datetime_utc.astimezone(pytz.timezone(backend.timezone)).strftime(DEFAULT_SERVER_DATETIME_FORMAT)
         return dt
 
-class BotsFile(orm.TransientModel):
+class BotsFile(orm.Model):
     _name = 'bots.file'
     _description = 'File mutex for communication with Bots'
     _rec_name = 'full_path'

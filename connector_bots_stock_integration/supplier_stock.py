@@ -23,7 +23,7 @@ import logging
 
 from openerp import pooler, netsvc, SUPERUSER_ID
 from openerp.addons.connector.queue.job import job
-from openerp.addons.connector.exception import JobError, NoExternalId
+from openerp.addons.connector.exception import JobError
 from openerp.addons.connector.unit.synchronizer import ImportSynchronizer
 
 from openerp.addons.connector_bots.unit.backend_adapter import BotsCRUDAdapter, file_to_process
@@ -52,88 +52,163 @@ class StockAdapter(BotsCRUDAdapter):
     _model_name = 'bots.backend.supplier.feed'
 
     def process_stock_file(self, filename):
-        cr = self.session.cr
-        file_obj = self.session.pool.get('bots.file')
 
-        err_barcode = []
-        err_sku = []
-        err_barcode_multi = []
-        err_sku_multi = []
-        err_supplier = []
-        prod_ids = {}
-        vendor = False
-        with file_to_process(self.session, filename) as f:
-            file = file_obj.browse(cr, SUPERUSER_ID, filename)
-            with open(file.full_path, "rb") as csv_file:
-                reader = csv.DictReader(csv_file)
-                for row in reader:
-                    products = self._check_product(cr, row['SUPPLIER_BARCODE'], row['SKU'])
-                    if not products:
-                        err_barcode.append(row['SUPPLIER_BARCODE'])
-                        err_sku.append(row['SKU'])
-                    elif len(products) > 1:
-                        err_barcode_multi.append(row['SUPPLIER_BARCODE'])
-                        err_sku_multi.append(row['SKU'])
-                    else:
-                        prod_ids[products[0]] = row['QUANTITY']
-                    if not vendor:
-                        vendor = self._check_vendor(cr, row['SUPPLIER_ID'])
-                    if not vendor and row['SUPPLIER_ID'] not in err_supplier:
-                        err_supplier.append(row['SUPPLIER_ID'])
-                self._raise_error(filename, err_barcode, err_sku, err_supplier, err_barcode_multi, err_sku_multi)
-                vendor_obj = self.session.pool.get('res.partner').browse(self.session.cr, SUPERUSER_ID, vendor[0])
-                vendor_prod_ids = self.session.pool.get('product.product').search(self.session.cr, SUPERUSER_ID, [
-                    ('seller_ids.name.id', '=', vendor_obj.id)])
-                for prodid, qtyval in prod_ids.iteritems():
-                    product_obj = self.session.pool.get('product.product').browse(self.session.cr, SUPERUSER_ID, prodid)
+        with file_to_process(self.session, filename) as csv_file:
+            supplier, product_updates, all_supplier_products = self._preprocess_rows(csv_file)
 
-                    qty = float(qtyval)
-                    # % to Exclude Calculation
-                    if vendor_obj.percent_to_exclude:
-                        exclude_qty = (vendor_obj.percent_to_exclude / 100.0) * qty
-                        qty = qty - int(exclude_qty)
-                    product_obj.write({'supplier_stock_integration_qty': qty})
+            for product_id, qty in product_updates:
+                product_obj = self.session.pool.get('product.product').browse(self.session.cr, SUPERUSER_ID, product_id)
 
-                    vendor_prod_ids.remove(product_obj.id)
+                # % to Exclude Calculation
+                if supplier.percent_to_exclude:
+                    exclude_qty = (supplier.percent_to_exclude / 100.0) * qty
+                    qty = qty - int(exclude_qty)
 
-                # Out of Stock Products
-                if vendor_prod_ids and vendor_obj.flag_skus_out_of_stock:
-                    self.session.pool.get('product.product').write(self.session.cr, SUPERUSER_ID, vendor_prod_ids,
-                                                                   {'supplier_stock_integration_qty': 0})
+                product_obj.write({'supplier_stock_integration_qty': qty})
 
-    def _check_product(self, cr, barcode=False, sku=False):
-        if barcode and sku:
-            return self.session.pool.get('product.product').search(cr, SUPERUSER_ID, [('magento_barcode','=',barcode), ('magento_supplier_sku','=',sku)])
-        return False
-        
-    def _check_vendor(self, cr, supplier_id=False):
-        if supplier_id:
-            return self.session.pool.get('res.partner').search(cr, SUPERUSER_ID, [('ref','=',supplier_id), ('supplier','=',True)])
-        return False
-        
-    def _raise_error(self, filename=False, err_barcode=None, err_sku=None,err_supplier=None, err_barcode_multi=None, err_sku_multi=None):
-        if err_barcode or err_sku:
-            if err_barcode_multi or err_sku_multi:
-                if err_supplier:
-                    logger.error('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" does not Exists, Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once and Supplier(s) With Reference(s) "%s" does not Exists.', filename, err_barcode, err_sku, err_barcode_multi, err_sku_multi, err_supplier)
-                    raise JobError('Error while processing the File %s : Product with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" does not Exists, Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once and Supplier(s) With Reference(s) "%s" does not Exists.' % (filename, err_barcode,err_sku, err_barcode_multi, err_sku_multi, err_supplier,))
+                all_supplier_products.remove(product_obj.id)
+
+            # Out of Stock Products
+            if all_supplier_products and supplier.flag_skus_out_of_stock:
+                self.session.pool.get('product.product').write(
+                    self.session.cr, SUPERUSER_ID, all_supplier_products, {'supplier_stock_integration_qty': 0}
+                )
+
+    def _preprocess_rows(self, csv_file):
+        """ Do some pre-processing on the csv rows to make sure everything is as we expect. 
+            Will raise a JobError if anything is not correct.
+        """
+        rows = [row for row in csv.DictReader(csv_file)]
+
+        product_upates, products_error_message = self._check_products(rows)
+        supplier, all_supplier_products, supplier_error_message = self._check_supplier(rows, product_upates)
+
+        if products_error_message or supplier_error_message:
+            raise JobError("""
+                {supplier_errors}
+                {product_errors}
+            """.format(supplier_errors=supplier_error_message, product_errors=products_error_message))
+        else:
+            return supplier, product_upates, all_supplier_products
+
+    def _check_products(self, rows):
+        """ Ensure that the product information in the csv is correct
+        """
+
+        products = []
+        missing_products = []
+        too_many_products = []
+        duplicate_rows = set()
+        processed_rows = set()
+        invalid_quantity_values = []
+
+        for row in rows:
+
+            barcode = row['SUPPLIER_BARCODE']
+            sku = row['SKU']
+            qty = row['QUANTITY']
+
+            identifier = '%s %s' % (sku, barcode)
+
+            if identifier in processed_rows:
+                duplicate_rows.add(identifier)
+                continue
+            else:
+                processed_rows.add(identifier)
+
+            product_ids = self.session.pool.get('product.product').search(
+                self.session.cr, SUPERUSER_ID, [('magento_barcode', '=', barcode), ('magento_supplier_sku', '=', sku)]
+            )
+
+            if len(product_ids) == 1:
+                try:
+                    qty = int(qty)
+                    if qty < 1:
+                        raise ValueError()
+                except ValueError:
+                    invalid_quantity_values.append('%s %s' % (identifier, qty))
                 else:
-                    logger.error('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" does not Exists and Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once.', filename, err_barcode, err_sku, err_barcode_multi, err_sku_multi)
-                    raise JobError('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" does not Exists and Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once.' % (filename, err_barcode,err_sku, err_barcode_multi, err_sku_multi))
+                    products.append((product_ids[0], qty))
+
+            elif len(product_ids) > 1:
+                too_many_products.append(identifier)
+
             else:
-                logger.error('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" does not Exists.',filename, err_barcode, err_sku)
-                raise JobError('Errors while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" does not Exists.' % (filename,err_barcode, err_sku,))                    
-        elif err_barcode_multi or err_sku_multi:
-            if err_supplier:
-                logger.error('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once and Supplier(s) With Reference(s) "%s" does not Exists.', filename, err_barcode_multi, err_sku_multi, err_supplier)
-                raise JobError('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once and Supplier(s) With Reference(s) "%s" does not Exists.' % (filename, err_barcode_multi, err_sku_multi, err_supplier,))
+                missing_products.append(identifier)
+
+        error_message = ''
+
+        if missing_products:
+            error_message += """
+            Missing product(s):
+            {products}
+            """.format(products='\n'.join(missing_products))
+
+        if too_many_products:
+            error_message += """
+            Multiple products found:
+            {products}
+            """.format(products='\n'.join(missing_products))
+
+        if duplicate_rows:
+            error_message += """
+            Duplicate row(s) found:
+            {products}
+            """.format(products='\n'.join(duplicate_rows))
+
+        if invalid_quantity_values:
+            error_message += """
+            Invalid quantity value(s) found:
+            {products}
+            """.format(products='\n'.join(invalid_quantity_values))
+
+        return products, error_message
+
+    def _check_supplier(self, rows, product_updates):
+        """ Ensure that the supplier information in the csv is correct
+        """
+
+        supplier_ids = list({row['SUPPLIER_ID'] for row in rows})
+        error_message = ''
+        supplier = None
+        all_supplier_products = []
+
+        if len(supplier_ids) > 1:
+            error_message = """
+            More than one supplier id found in file: 
+            {ids}""".format(ids='\n'.join(supplier_ids))
+
+        else:
+            supplier_id = supplier_ids[0]
+
+            if supplier_id is None:
+                error_message = """
+                Supplier id field is empty"""
+
+            partner_ids = self.session.pool.get('res.partner').search(
+                self.session.cr, SUPERUSER_ID, [('ref', '=', supplier_id), ('supplier','=',True)]
+            )
+
+            if len(partner_ids) == 0:
+                error_message = """
+                No supplier found for id {id}""".format(id=supplier_id)
+            elif len(partner_ids) > 1:
+                error_message = """
+                Multiple suppliers found for id {id}""".format(id=supplier_id)
             else:
-                logger.error('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once.', filename, err_barcode_multi, err_sku_multi)
-                raise JobError('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once.' % (filename, err_barcode_multi, err_sku_multi))
-        elif err_supplier:
-            logger.error('Error while processing the File %s : Supplier(s) With Reference(s) "%s" does not Exists.',filename, err_supplier)
-            raise JobError('Error while processing the File %s : Supplier(s) With Reference(s) "%s" does not Exists.' % (filename,err_supplier,))
-        return False
+                supplier = self.session.pool.get('res.partner').browse(self.session.cr, SUPERUSER_ID, partner_ids[0])
+                all_supplier_products = self.session.pool.get('product.product').search(
+                    self.session.cr, SUPERUSER_ID, [('seller_ids.name.id', '=', supplier_id)]
+                )
+
+                if supplier:
+                    extra_products = set({product[0] for product in product_updates}) - set(all_supplier_products)
+                    if extra_products:
+                        error_message += """
+                        Products that do not belong to the supplier:
+                        {products}""".format(products='\n'.join(extra_products))
+
+        return supplier, all_supplier_products, error_message
                         
     def get_supplier_stock(self):
 
