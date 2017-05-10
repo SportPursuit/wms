@@ -6,6 +6,6 @@ class supplier(osv.osv):
     _inherit = 'res.partner'
     
     _columns = {
-    'percent_to_exclude':fields.integer('Stock % to Exclude', help="stock % has to exclude for the Supplier while importing the Stock"),
-    'flg_sku_out_of_stock':fields.boolean('Is Out of Stock', help="Barcode not found in sheet has to mark as Out of Stock or not")
+    'percent_to_exclude':fields.integer('Stock % to Exclude', help="Percentage of stock to be excluded from the supplier available quantity when importing stock quantities through the supplier feed"),
+    'flag_skus_out_of_stock':fields.boolean('Is Out of Stock', help="Flag supplier products as out of stock if they are not included in the supplier integration feed")
     }
