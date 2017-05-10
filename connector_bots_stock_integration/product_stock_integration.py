@@ -1,5 +1,4 @@
 from openerp.osv import osv, fields
-from openerp.tools.translate import _
 import openerp.addons.decimal_precision as dp
 
     
@@ -15,12 +14,16 @@ class product(osv.osv):
         return res
     
     _columns = {
-    'supplier_stock_integration_qty': fields.float(string='Supplier Integration Quantity', digits_compute=dp.get_precision('Product Unit of Measure')), 
-    'supplier_virtual_available_combined': fields.function(_product_available_supplier, multi='supplier_virtual_available',
+        'supplier_stock_integration_qty': fields.float(
+            string='Supplier Integration Quantity', digits_compute=dp.get_precision('Product Unit of Measure')
+        ),
+        'supplier_virtual_available_combined': fields.function(
+            _product_available_supplier, multi='supplier_virtual_available',
             type='float',  digits_compute=dp.get_precision('Product Unit of Measure'),
             string='Available Quantity inc. Supplier',
             help="Forecast quantity (computed as Quantity On Hand "
                  "- Outgoing + Incoming) at the virtual supplier location "
                  "for the current warehouse if applicable, otherwise 0, plus "
-                 "the normal forecast quantity."),   
+                 "the normal forecast quantity and quantity provided by the supplier feed."
+        ),
     }
