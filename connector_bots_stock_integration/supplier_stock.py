@@ -19,31 +19,19 @@
 ##############################################################################
 
 import csv
-import itertools
 import logging
-from cStringIO import StringIO
-from openerp.osv import orm, fields, osv
-from openerp import pooler, netsvc, SUPERUSER_ID
-from openerp.tools.translate import _
-from openerp.tools.misc import DEFAULT_SERVER_DATETIME_FORMAT
 
-from openerp.addons.connector.session import ConnectorSession
+from openerp import pooler, netsvc, SUPERUSER_ID
 from openerp.addons.connector.queue.job import job
 from openerp.addons.connector.exception import JobError, NoExternalId
 from openerp.addons.connector.unit.synchronizer import ImportSynchronizer
-from openerp.addons.magentoerpconnect.stock_tracking import export_tracking_number
 
-from openerp.addons.connector_bots.unit.binder import BotsModelBinder
 from openerp.addons.connector_bots.unit.backend_adapter import BotsCRUDAdapter, file_to_process
 from openerp.addons.connector_bots.backend import bots
 from openerp.addons.connector_bots.connector import get_environment, add_checkpoint
-import openerp.addons.decimal_precision as dp
-import json
-import traceback
-from datetime import datetime
 
-from psycopg2 import OperationalError
-_logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
+
 
 @bots
 class BotsStockImport(ImportSynchronizer):
@@ -75,23 +63,23 @@ class StockAdapter(BotsCRUDAdapter):
         if err_barcode or err_sku:
             if err_barcode_multi or err_sku_multi:
                 if err_supplier:
-                    _logger.error('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" does not Exists, Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once and Supplier(s) With Reference(s) "%s" does not Exists.', filename, err_barcode, err_sku, err_barcode_multi, err_sku_multi, err_supplier) 
+                    logger.error('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" does not Exists, Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once and Supplier(s) With Reference(s) "%s" does not Exists.', filename, err_barcode, err_sku, err_barcode_multi, err_sku_multi, err_supplier)
                     raise JobError('Error while processing the File %s : Product with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" does not Exists, Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once and Supplier(s) With Reference(s) "%s" does not Exists.' % (filename, err_barcode,err_sku, err_barcode_multi, err_sku_multi, err_supplier,))
                 else:
-                    _logger.error('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" does not Exists and Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once.', filename, err_barcode, err_sku, err_barcode_multi, err_sku_multi) 
+                    logger.error('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" does not Exists and Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once.', filename, err_barcode, err_sku, err_barcode_multi, err_sku_multi)
                     raise JobError('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" does not Exists and Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once.' % (filename, err_barcode,err_sku, err_barcode_multi, err_sku_multi))
             else:
-                _logger.error('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" does not Exists.',filename, err_barcode, err_sku) 
+                logger.error('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" does not Exists.',filename, err_barcode, err_sku)
                 raise JobError('Errors while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" does not Exists.' % (filename,err_barcode, err_sku,))                    
         elif err_barcode_multi or err_sku_multi:
             if err_supplier:
-                _logger.error('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once and Supplier(s) With Reference(s) "%s" does not Exists.', filename, err_barcode_multi, err_sku_multi, err_supplier) 
+                logger.error('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once and Supplier(s) With Reference(s) "%s" does not Exists.', filename, err_barcode_multi, err_sku_multi, err_supplier)
                 raise JobError('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once and Supplier(s) With Reference(s) "%s" does not Exists.' % (filename, err_barcode_multi, err_sku_multi, err_supplier,))
             else:
-                _logger.error('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once.', filename, err_barcode_multi, err_sku_multi) 
+                logger.error('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once.', filename, err_barcode_multi, err_sku_multi)
                 raise JobError('Error while processing the File %s : Product(s) with Magento Barcode(s) "%s" or with Magento Supplier SKU(s) "%s" appeared more than Once.' % (filename, err_barcode_multi, err_sku_multi))
         elif err_supplier:
-            _logger.error('Error while processing the File %s : Supplier(s) With Reference(s) "%s" does not Exists.',filename, err_supplier) 
+            logger.error('Error while processing the File %s : Supplier(s) With Reference(s) "%s" does not Exists.',filename, err_supplier)
             raise JobError('Error while processing the File %s : Supplier(s) With Reference(s) "%s" does not Exists.' % (filename,err_supplier,))
         return False
                         
