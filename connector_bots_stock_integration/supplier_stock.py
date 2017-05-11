@@ -58,7 +58,7 @@ class StockAdapter(BotsCRUDAdapter):
 
     def process_stock_file(self, filename):
 
-        bots_file_id = self.session.pool.get('bots.file').search([('full_path', 'like', '%%s' % filename)])
+        bots_file_id = self.session.pool.get('bots.file').search([('full_path', '=', filename)])
 
         if bots_file_id and len(bots_file_id) == 1:
 
