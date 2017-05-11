@@ -20,6 +20,7 @@
 
 import csv
 import logging
+from datetime import datetime
 
 from openerp import pooler, netsvc, SUPERUSER_ID
 from openerp.addons.connector.queue.job import job
@@ -31,6 +32,9 @@ from openerp.addons.connector_bots.backend import bots
 from openerp.addons.connector_bots.connector import get_environment, add_checkpoint
 
 logger = logging.getLogger(__name__)
+
+
+SUPPLIER_STOCK_FEED = 'Supplier Stock Feed'
 
 
 @bots
@@ -47,6 +51,7 @@ class BotsStockImport(ImportSynchronizer):
         """
         self.backend_adapter.process_stock_feed(filename)
 
+
 @bots
 class StockAdapter(BotsCRUDAdapter):
     _model_name = 'bots.backend.supplier.feed'
@@ -54,25 +59,9 @@ class StockAdapter(BotsCRUDAdapter):
     def process_stock_file(self, filename):
 
         with file_to_process(self.session, filename) as csv_file:
-            supplier, product_updates, all_supplier_products = self._preprocess_rows(csv_file)
+            supplier, product_updates = self._preprocess_rows(csv_file)
 
-            for product_id, qty in product_updates:
-                product_obj = self.session.pool.get('product.product').browse(self.session.cr, SUPERUSER_ID, product_id)
-
-                # % to Exclude Calculation
-                if supplier.percent_to_exclude:
-                    exclude_qty = (supplier.percent_to_exclude / 100.0) * qty
-                    qty = qty - int(exclude_qty)
-
-                product_obj.write({'supplier_stock_integration_qty': qty})
-
-                all_supplier_products.remove(product_obj.id)
-
-            # Out of Stock Products
-            if all_supplier_products and supplier.flag_skus_out_of_stock:
-                self.session.pool.get('product.product').write(
-                    self.session.cr, SUPERUSER_ID, all_supplier_products, {'supplier_stock_integration_qty': 0}
-                )
+            self._create_physical_inventory(supplier, product_updates)
 
     def _preprocess_rows(self, csv_file):
         """ Do some pre-processing on the csv rows to make sure everything is as we expect. 
@@ -80,8 +69,13 @@ class StockAdapter(BotsCRUDAdapter):
         """
         rows = [row for row in csv.DictReader(csv_file)]
 
-        product_upates, products_error_message = self._check_products(rows)
-        supplier, all_supplier_products, supplier_error_message = self._check_supplier(rows, product_upates)
+        product_updates, products_error_message = self._check_products(rows)
+        supplier, all_supplier_products, supplier_error_message = self._check_supplier(rows, product_updates)
+
+        if supplier.flag_skus_out_of_stock:
+            for product_id in all_supplier_products:
+                if product_id not in product_updates:
+                    product_updates[product_id] = 0
 
         if products_error_message or supplier_error_message:
             raise JobError("""
@@ -89,13 +83,13 @@ class StockAdapter(BotsCRUDAdapter):
                 {product_errors}
             """.format(supplier_errors=supplier_error_message, product_errors=products_error_message))
         else:
-            return supplier, product_upates, all_supplier_products
+            return supplier, product_updates
 
     def _check_products(self, rows):
         """ Ensure that the product information in the csv is correct
         """
 
-        products = []
+        products = {}
         missing_products = []
         too_many_products = []
         duplicate_rows = set()
@@ -128,7 +122,7 @@ class StockAdapter(BotsCRUDAdapter):
                 except ValueError:
                     invalid_quantity_values.append('%s %s' % (identifier, qty))
                 else:
-                    products.append((product_ids[0], qty))
+                    products[product_ids[0]] = qty
 
             elif len(product_ids) > 1:
                 too_many_products.append(identifier)
@@ -190,7 +184,7 @@ class StockAdapter(BotsCRUDAdapter):
             else:
 
                 partner_ids = self.session.pool.get('res.partner').search(
-                    self.session.cr, SUPERUSER_ID, [('ref', '=', supplier_id), ('supplier','=',True)]
+                    self.session.cr, SUPERUSER_ID, [('ref', '=', supplier_id), ('supplier', '=', True)]
                 )
 
                 if len(partner_ids) == 0:
@@ -202,13 +196,15 @@ class StockAdapter(BotsCRUDAdapter):
                     Multiple suppliers found for id {id}
                     """.format(id=supplier_id)
                 else:
-                    supplier = self.session.pool.get('res.partner').browse(self.session.cr, SUPERUSER_ID, partner_ids[0])
+                    supplier = self.session.pool.get('res.partner').browse(
+                        self.session.cr, SUPERUSER_ID, partner_ids[0]
+                    )
                     all_supplier_products = self.session.pool.get('product.product').search(
                         self.session.cr, SUPERUSER_ID, [('seller_ids.name.id', '=', supplier.id)]
                     )
 
                     if supplier:
-                        extra_products = set({product[0] for product in product_updates}) - set(all_supplier_products)
+                        extra_products = set(product_updates.keys()) - set(all_supplier_products)
                         if extra_products:
                             error_message += """
                             Products that do not belong to the supplier:
@@ -219,8 +215,8 @@ class StockAdapter(BotsCRUDAdapter):
                         
     def get_supplier_stock(self):
 
-        FILENAME = r'^.*\.csv$'
-        file_ids = self._search(FILENAME)
+        csv_regex = r'^.*\.csv$'
+        file_ids = self._search(csv_regex)
 
         for _, filename in file_ids:
             process_supplier_stock_file.delay(
@@ -228,6 +224,44 @@ class StockAdapter(BotsCRUDAdapter):
             )
 
         return True
+
+    # FIXME
+    # This is copy-pasted and modified from sp_backorder_limt SportPursuitBackorderProductImport in the interest
+    # of getting this released sooner rather than later.
+
+    def _create_physical_inventory(self, supplier, product_updates):
+        stock_location_id = self.session.pool.get('stock.location').search([('name', '=', SUPPLIER_STOCK_FEED)])[0]
+
+        today = datetime.strftime(datetime.now(), "%d-%m-%Y")
+
+        inventory_record = {
+            'state': 'draft',
+            'name': 'Stock Integration Update - %s : %s' % (supplier.name, today)
+        }
+
+        inventory_id = self.session.create('stock.inventory', inventory_record)
+
+        for product_id, qty in product_updates:
+
+            # % to Exclude Calculation
+            if supplier.percent_to_exclude:
+                exclude_qty = (supplier.percent_to_exclude / 100.0) * qty
+                qty = qty - int(exclude_qty)
+
+            inventory_line_record = {
+                'product_uom': 1,
+                'product_id': product_id,
+                'location_id': stock_location_id,
+                'inventory_id': inventory_id,
+                'product_qty': qty
+            }
+
+            self.session.create('stock.inventory.line', inventory_line_record)
+
+        inventory_obj = self.session.pool['stock.inventory']
+        inventory_obj.action_confirm(self.session.cr, SUPERUSER_ID, [inventory_id], self.session.context)
+        inventory_obj.action_done(self.session.cr, SUPERUSER_ID, [inventory_id], self.session.context)
+
 
 @job
 def import_supplier_stock(session, name, backend_id):
