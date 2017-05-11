@@ -58,10 +58,20 @@ class StockAdapter(BotsCRUDAdapter):
 
     def process_stock_file(self, filename):
 
-        with file_to_process(self.session, filename) as csv_file:
-            supplier, product_updates = self._preprocess_rows(csv_file)
+        bots_file_id = self.session.pool.get('bots.file').search([('full_path', 'like', '%%s' % filename)])
 
-            self._create_physical_inventory(supplier, product_updates)
+        if bots_file_id and len(bots_file_id) == 1:
+
+            with file_to_process(self.session, bots_file_id) as csv_file:
+                supplier, product_updates = self._preprocess_rows(csv_file)
+
+                self._create_physical_inventory(supplier, product_updates)
+
+        elif not bots_file_id:
+            raise Exception('No bots.file entry found for file %s' % filename)
+
+        else:
+            raise Exception('More than one bots.file entry found for file %s' % filename)
 
     def _preprocess_rows(self, csv_file):
         """ Do some pre-processing on the csv rows to make sure everything is as we expect. 
