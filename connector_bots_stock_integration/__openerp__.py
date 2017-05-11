@@ -33,7 +33,6 @@
  ],
  'data': [     
      'supplier_stock_view.xml',
-     'product_stock_integration_view.xml',
      'bots_data.xml'
  ],
  'installable': True,
