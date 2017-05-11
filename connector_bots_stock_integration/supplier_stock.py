@@ -176,37 +176,44 @@ class StockAdapter(BotsCRUDAdapter):
         if len(supplier_ids) > 1:
             error_message = """
             More than one supplier id found in file: 
-            {ids}""".format(ids='\n'.join(supplier_ids))
+            {ids}
+            """.format(ids='\n'.join(supplier_ids))
 
         else:
             supplier_id = supplier_ids[0]
 
             if supplier_id is None:
                 error_message = """
-                Supplier id field is empty"""
+                Supplier id field is empty
+                """
 
-            partner_ids = self.session.pool.get('res.partner').search(
-                self.session.cr, SUPERUSER_ID, [('ref', '=', supplier_id), ('supplier','=',True)]
-            )
-
-            if len(partner_ids) == 0:
-                error_message = """
-                No supplier found for id {id}""".format(id=supplier_id)
-            elif len(partner_ids) > 1:
-                error_message = """
-                Multiple suppliers found for id {id}""".format(id=supplier_id)
             else:
-                supplier = self.session.pool.get('res.partner').browse(self.session.cr, SUPERUSER_ID, partner_ids[0])
-                all_supplier_products = self.session.pool.get('product.product').search(
-                    self.session.cr, SUPERUSER_ID, [('seller_ids.name.id', '=', supplier_id)]
+
+                partner_ids = self.session.pool.get('res.partner').search(
+                    self.session.cr, SUPERUSER_ID, [('ref', '=', supplier_id), ('supplier','=',True)]
                 )
 
-                if supplier:
-                    extra_products = set({product[0] for product in product_updates}) - set(all_supplier_products)
-                    if extra_products:
-                        error_message += """
-                        Products that do not belong to the supplier:
-                        {products}""".format(products='\n'.join(extra_products))
+                if len(partner_ids) == 0:
+                    error_message = """
+                    No supplier found for id {id}
+                    """.format(id=supplier_id)
+                elif len(partner_ids) > 1:
+                    error_message = """
+                    Multiple suppliers found for id {id}
+                    """.format(id=supplier_id)
+                else:
+                    supplier = self.session.pool.get('res.partner').browse(self.session.cr, SUPERUSER_ID, partner_ids[0])
+                    all_supplier_products = self.session.pool.get('product.product').search(
+                        self.session.cr, SUPERUSER_ID, [('seller_ids.name.id', '=', supplier.id)]
+                    )
+
+                    if supplier:
+                        extra_products = set({product[0] for product in product_updates}) - set(all_supplier_products)
+                        if extra_products:
+                            error_message += """
+                            Products that do not belong to the supplier:
+                            {products}
+                            """.format(products='\n'.join(extra_products))
 
         return supplier, all_supplier_products, error_message
                         
