@@ -44,7 +44,7 @@ class BotsStockImport(ImportSynchronizer):
     def import_supplier_stock(self):
         """ Creates entries in the bots.file table and spawns a job per entry to process it
         """
-        self.backend_adapter.get_supplier_stock()
+        self.backend_adapter.get_supplier_stock(self.environment.backend_record.id)
 
     def process_supplier_stock_file(self, filename):
         """ Processes the supplier stock feed csv
@@ -213,14 +213,14 @@ class StockAdapter(BotsCRUDAdapter):
 
         return supplier, all_supplier_products, error_message
                         
-    def get_supplier_stock(self):
+    def get_supplier_stock(self, backend_id):
 
         csv_regex = r'^.*\.csv$'
         file_ids = self._search(csv_regex)
 
         for _, filename in file_ids:
             process_supplier_stock_file.delay(
-                self.session, 'bots.backend.supplier.feed', self.bots.id, filename, priority=5
+                self.session, 'bots.backend.supplier.feed', backend_id, filename, priority=5
             )
 
         return True
