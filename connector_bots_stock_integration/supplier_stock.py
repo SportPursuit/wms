@@ -49,7 +49,7 @@ class BotsStockImport(ImportSynchronizer):
     def process_supplier_stock_file(self, filename):
         """ Processes the supplier stock feed csv
         """
-        self.backend_adapter.process_stock_feed(filename)
+        self.backend_adapter.process_stock_file(filename)
 
 
 @bots
