@@ -20,24 +20,27 @@ class product_product(osv.osv):
         feed_disabled_products = []
 
         for product in self.browse(cr, uid, ids, context=context):
-            if any(product.seller_ids.name.stock_feed_enabled):
+            feed_enabled = [supplier.name.stock_feed_enabled for supplier in product.seller_ids]
+
+            if any(feed_enabled):
                 feed_enabled_products.append(product.id)
             else:
                 feed_disabled_products.append(product.id)
 
-        result = {}
+        result = super(product_product,self)._product_available_supplier(
+                cr, uid, ids, field_names=field_names, arg=arg, context=context
+        )
 
         if feed_enabled_products:
             c = context.copy()
             c['location'] = SUPPLIER_STOCK_FEED
+            c['states'] = ('confirmed', 'waiting', 'assigned', 'done')
+            c['what'] = ('in', 'out')
+
             products = self.get_product_available(cr, uid, feed_enabled_products, context=c)
+
             for product, qty in products.iteritems():
                 result[product]['supplier_virtual_available_combined'] = qty
-
-        else:
-             result.update( super(product_product,self)._product_available_supplier(
-                cr, uid, ids, field_names=field_names, arg=arg, context=context
-            ))
 
         return result
 
