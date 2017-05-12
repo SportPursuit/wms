@@ -58,11 +58,13 @@ class StockAdapter(BotsCRUDAdapter):
 
     def process_stock_file(self, filename):
 
-        bots_file_id = self.session.pool.get('bots.file').search([('full_path', '=', filename)])
+        bots_file_id = self.session.pool.get('bots.file').search(
+            self.session.cr, SUPERUSER_ID, [('full_path', '=', filename)]
+        )
 
         if bots_file_id and len(bots_file_id) == 1:
 
-            with file_to_process(self.session, bots_file_id) as csv_file:
+            with file_to_process(self.session, bots_file_id[0]) as csv_file:
                 supplier, product_updates = self._preprocess_rows(csv_file)
 
                 self._create_physical_inventory(supplier, product_updates)
@@ -78,6 +80,9 @@ class StockAdapter(BotsCRUDAdapter):
             Will raise a JobError if anything is not correct.
         """
         rows = [row for row in csv.DictReader(csv_file)]
+
+        if not rows:
+            raise Exception('File appears to be empty')
 
         product_updates, products_error_message = self._check_products(rows)
         supplier, all_supplier_products, supplier_error_message = self._check_supplier(rows, product_updates)
@@ -240,7 +245,9 @@ class StockAdapter(BotsCRUDAdapter):
     # of getting this released sooner rather than later.
 
     def _create_physical_inventory(self, supplier, product_updates):
-        stock_location_id = self.session.pool.get('stock.location').search([('name', '=', SUPPLIER_STOCK_FEED)])[0]
+        stock_location_id = self.session.pool.get('stock.location').search(
+            self.session.cr, SUPERUSER_ID, [('name', '=', SUPPLIER_STOCK_FEED)]
+        )[0]
 
         today = datetime.strftime(datetime.now(), "%d-%m-%Y")
 
@@ -251,7 +258,7 @@ class StockAdapter(BotsCRUDAdapter):
 
         inventory_id = self.session.create('stock.inventory', inventory_record)
 
-        for product_id, qty in product_updates:
+        for product_id, qty in product_updates.iteritems():
 
             # % to Exclude Calculation
             if supplier.percent_to_exclude:
