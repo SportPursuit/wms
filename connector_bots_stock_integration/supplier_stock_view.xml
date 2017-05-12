@@ -9,8 +9,9 @@
             <field name="inherit_id" ref="base.view_partner_form"/>
             <field name="arch" type="xml">
                 <xpath expr="//page[@string='Sales &amp; Purchases']//field[@name='user_id']" position="after">
-                    <field name="percent_to_exclude" attrs="{'invisible': [('supplier', '=', False)]}"/>
-                    <field name="flag_skus_out_of_stock" attrs="{'invisible': [('supplier', '=', False)]}"/>
+                    <field name="stock_feed_enabled" attrs="{'invisible': [('supplier', '=', False)]}"/>
+                    <field name="percent_to_exclude" attrs="{'invisible': [('supplier', '=', False), ('stock_feed_enabled', '=', True)]}"/>
+                    <field name="flag_skus_out_of_stock" attrs="{'invisible': [('supplier', '=', False), ('stock_feed_enabled', '=', True)]}"/>
                 </xpath>
             </field>
         </record>
