@@ -31,7 +31,8 @@
      'connector_bots',
      'stock_supplier_levels',
  ],
- 'data': [     
+ 'data': [
+     'product_view.xml',
      'supplier_stock_view.xml',
      'bots_data.xml'
  ],

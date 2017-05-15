@@ -6,6 +6,20 @@ from .supplier_stock import SUPPLIER_STOCK_FEED
 
 class product_product(osv.osv):
     _inherit = "product.product"
+
+    def _product_available_supplier_feed(self, cr, uid, ids, field_names=None, arg=False, context=None):
+
+        c = context.copy()
+        c['location'] = SUPPLIER_STOCK_FEED
+        c['states'] = ('confirmed', 'waiting', 'assigned', 'done')
+        c['what'] = ('in', 'out')
+
+        products = self.get_product_available(cr, uid, ids, context=c)
+
+        return {
+            product: qty for product, qty in products.iteritems()
+        }
+
     
     def _product_available_supplier(self, cr, uid, ids, field_names=None, arg=False, context=None):
 
@@ -32,19 +46,19 @@ class product_product(osv.osv):
         )
 
         if feed_enabled_products:
-            c = context.copy()
-            c['location'] = SUPPLIER_STOCK_FEED
-            c['states'] = ('confirmed', 'waiting', 'assigned', 'done')
-            c['what'] = ('in', 'out')
-
-            products = self.get_product_available(cr, uid, feed_enabled_products, context=c)
+            products = self._product_available_supplier_feed(cr, uid, feed_enabled_products, context=context)
 
             for product, qty in products.iteritems():
-                result[product]['supplier_virtual_available_combined'] = qty
+                result[product]['supplier_virtual_available_combined'] += qty
 
         return result
 
     _columns = {
+        'supplier_feed_quantity': fields.function(
+            _product_available_supplier_feed,
+            type='float',  digits_compute=dp.get_precision('Product Unit of Measure'),
+            string='Supplier Feed Quantity'
+        ),
         'supplier_virtual_available_combined': fields.function(
             _product_available_supplier, multi='supplier_virtual_available',
             type='float',  digits_compute=dp.get_precision('Product Unit of Measure'),
