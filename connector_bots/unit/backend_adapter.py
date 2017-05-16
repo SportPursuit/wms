@@ -24,7 +24,7 @@ import logging
 from openerp import SUPERUSER_ID
 from openerp import pooler
 from openerp.addons.connector.unit.backend_adapter import CRUDAdapter
-from openerp.addons.connector.exception import NetworkRetryableError, RetryableJobError
+from openerp.addons.connector.exception import NetworkRetryableError, RetryableJobError, JobError
 
 from datetime import datetime
 from contextlib import contextmanager
@@ -35,7 +35,7 @@ import re
 _logger = logging.getLogger(__name__)
 
 @contextmanager
-def file_to_process(session, filename_id, new_cr=True):
+def file_to_process(session, filename_id, new_cr=True, raise_if_processed=False):
     """
         Open file for reading and return the contents as a stream.
 
@@ -61,6 +61,10 @@ def file_to_process(session, filename_id, new_cr=True):
         if not ids: # We acquired 0 locks which means the bots_file record has already been processed
             raise RetryableJobError('The bots.file record %s is no longer available, the file may have already been processed by another thread, skipping.' % (filename_id,))
         file = file_obj.browse(cr, SUPERUSER_ID, filename_id)
+
+        if file.processed and raise_if_processed:
+            raise JobError('File %s has already been processed.' % file.full_path)
+
         fd = open(file.full_path, "rb")
         yield fd
         file_obj.write(cr, SUPERUSER_ID, filename_id, {'processed': True})

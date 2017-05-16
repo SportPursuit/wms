@@ -22,6 +22,7 @@ import csv
 import logging
 from datetime import datetime
 
+from openerp.osv import orm
 from openerp import pooler, netsvc, SUPERUSER_ID
 from openerp.addons.connector.queue.job import job
 from openerp.addons.connector.exception import JobError
@@ -64,16 +65,13 @@ class StockAdapter(BotsCRUDAdapter):
 
         if bots_file_id and len(bots_file_id) == 1:
 
-            with file_to_process(self.session, bots_file_id[0]) as csv_file:
+            with file_to_process(self.session, bots_file_id[0], raise_if_processed=True) as csv_file:
                 supplier, product_updates = self._preprocess_rows(csv_file)
 
                 self._create_physical_inventory(supplier, product_updates)
 
-        elif not bots_file_id:
-            raise Exception('No bots.file entry found for file %s' % filename)
-
         else:
-            raise Exception('More than one bots.file entry found for file %s' % filename)
+            raise Exception('No bots_file entry found for file %s' % filename)
 
     def _preprocess_rows(self, csv_file):
         """ Do some pre-processing on the csv rows to make sure everything is as we expect. 
@@ -278,6 +276,32 @@ class StockAdapter(BotsCRUDAdapter):
         inventory_obj = self.session.pool['stock.inventory']
         inventory_obj.action_confirm(self.session.cr, SUPERUSER_ID, [inventory_id], self.session.context)
         inventory_obj.action_done(self.session.cr, SUPERUSER_ID, [inventory_id], self.session.context)
+
+
+class StockInventory(orm.Model):
+    _inherit = "stock.inventory"
+
+    def _inventory_line_hook(self, cr, uid, inventory_line, move_vals):
+
+        location_obj = self.pool.get('stock.location')
+        warehouse_obj = self.pool.get('stock.warehouse')
+
+        destination_id = move_vals.get('location_dest_id', False)
+
+        if destination_id:
+            domain = [
+                ('id', '=', destination_id),
+                ('usage', '=', 'supplier'),
+                ('name', '=', SUPPLIER_STOCK_FEED)
+            ]
+
+            if location_obj.search(cr, uid, domain):
+                warehouse_ids = warehouse_obj.search(cr, uid, [])
+                virtual_id = warehouse_obj.read(cr, uid, warehouse_ids, ['lot_supplier_virtual_id'])[0]
+
+                move_vals['location_id'] = virtual_id['lot_supplier_virtual_id']
+
+        return super(StockInventory, self)._inventory_line_hook(cr, uid, inventory_line, move_vals)
 
 
 @job
