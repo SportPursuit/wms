@@ -291,7 +291,7 @@ class StockInventory(orm.Model):
         if destination_id:
 
             supplier_feed_location_id = location_obj.search(
-                cr, uid, ('usage', '=', 'supplier'), ('name', '=', SUPPLIER_STOCK_FEED)
+                cr, uid, [('usage', '=', 'supplier'), ('name', '=', SUPPLIER_STOCK_FEED)]
             )[0]
 
             if destination_id == supplier_feed_location_id:
