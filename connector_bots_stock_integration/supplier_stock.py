@@ -289,13 +289,12 @@ class StockInventory(orm.Model):
         destination_id = move_vals.get('location_dest_id', False)
 
         if destination_id:
-            domain = [
-                ('id', '=', destination_id),
-                ('usage', '=', 'supplier'),
-                ('name', '=', SUPPLIER_STOCK_FEED)
-            ]
 
-            if location_obj.search(cr, uid, domain):
+            supplier_feed_location_id = location_obj.search(
+                cr, uid, ('usage', '=', 'supplier'), ('name', '=', SUPPLIER_STOCK_FEED)
+            )[0]
+
+            if destination_id == supplier_feed_location_id:
                 warehouse_ids = warehouse_obj.search(cr, uid, [])
                 virtual_id = warehouse_obj.read(cr, uid, warehouse_ids, ['lot_supplier_virtual_id'])[0]
 
