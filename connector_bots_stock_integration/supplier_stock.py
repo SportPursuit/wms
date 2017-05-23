@@ -278,31 +278,6 @@ class StockAdapter(BotsCRUDAdapter):
         inventory_obj.action_done(self.session.cr, SUPERUSER_ID, [inventory_id], self.session.context)
 
 
-class StockInventory(orm.Model):
-    _inherit = "stock.inventory"
-
-    def _inventory_line_hook(self, cr, uid, inventory_line, move_vals):
-
-        location_obj = self.pool.get('stock.location')
-        warehouse_obj = self.pool.get('stock.warehouse')
-
-        destination_id = move_vals.get('location_dest_id', False)
-
-        if destination_id:
-
-            supplier_feed_location_id = location_obj.search(
-                cr, uid, [('usage', '=', 'supplier'), ('name', '=', SUPPLIER_STOCK_FEED)]
-            )[0]
-
-            if destination_id == supplier_feed_location_id:
-                warehouse_ids = warehouse_obj.search(cr, uid, [])
-                virtual_id = warehouse_obj.read(cr, uid, warehouse_ids, ['lot_supplier_virtual_id'])[0]
-
-                move_vals['location_id'] = virtual_id['lot_supplier_virtual_id']
-
-        return super(StockInventory, self)._inventory_line_hook(cr, uid, inventory_line, move_vals)
-
-
 @job
 def import_supplier_stock(session, name, backend_id):
     env = get_environment(session, name, backend_id)
