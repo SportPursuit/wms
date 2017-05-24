@@ -446,7 +446,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                             main_picking = bots_picking_obj.browse(_cr, self.session.uid, main_picking_id, context=ctx)
 
                             if picking['type'] == 'in' and main_picking.openerp_id.shipped is True:
-                                raise JobError('PO %s is already received')
+                                raise JobError('PO %s is already received' % main_picking.openerp_id.name)
 
                             picking_ids = [main_picking.openerp_id.id]
                             ctx.update({'company_id' : main_picking.openerp_id.company_id.id})
