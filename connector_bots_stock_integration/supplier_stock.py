@@ -19,9 +19,11 @@
 ##############################################################################
 
 import csv
+import math
 import logging
 from datetime import datetime
 
+from openerp.osv import orm
 from openerp import pooler, netsvc, SUPERUSER_ID
 from openerp.addons.connector.queue.job import job
 from openerp.addons.connector.exception import JobError
@@ -64,16 +66,13 @@ class StockAdapter(BotsCRUDAdapter):
 
         if bots_file_id and len(bots_file_id) == 1:
 
-            with file_to_process(self.session, bots_file_id[0]) as csv_file:
+            with file_to_process(self.session, bots_file_id[0], raise_if_processed=True) as csv_file:
                 supplier, product_updates = self._preprocess_rows(csv_file)
 
                 self._create_physical_inventory(supplier, product_updates)
 
-        elif not bots_file_id:
-            raise Exception('No bots.file entry found for file %s' % filename)
-
         else:
-            raise Exception('More than one bots.file entry found for file %s' % filename)
+            raise Exception('No bots_file entry found for file %s' % filename)
 
     def _preprocess_rows(self, csv_file):
         """ Do some pre-processing on the csv rows to make sure everything is as we expect. 
@@ -87,17 +86,17 @@ class StockAdapter(BotsCRUDAdapter):
         product_updates, products_error_message = self._check_products(rows)
         supplier, all_supplier_products, supplier_error_message = self._check_supplier(rows, product_updates)
 
-        if supplier.flag_skus_out_of_stock:
-            for product_id in all_supplier_products:
-                if product_id not in product_updates:
-                    product_updates[product_id] = 0
-
         if products_error_message or supplier_error_message:
             raise JobError("""
                 {supplier_errors}
                 {product_errors}
             """.format(supplier_errors=supplier_error_message, product_errors=products_error_message))
         else:
+            if supplier.flag_skus_out_of_stock:
+                for product_id in all_supplier_products:
+                    if product_id not in product_updates:
+                        product_updates[product_id] = 0
+
             return supplier, product_updates
 
     def _check_products(self, rows):
@@ -115,7 +114,7 @@ class StockAdapter(BotsCRUDAdapter):
 
             barcode = row['SUPPLIER_BARCODE']
             sku = row['SKU']
-            qty = row['QUANTITY']
+            qty = int(row['QUANTITY'])
 
             identifier = '%s %s' % (sku, barcode)
 
@@ -130,14 +129,10 @@ class StockAdapter(BotsCRUDAdapter):
             )
 
             if len(product_ids) == 1:
-                try:
-                    qty = int(qty)
-                    if qty < 1:
-                        raise ValueError()
-                except ValueError:
-                    invalid_quantity_values.append('%s %s' % (identifier, qty))
-                else:
+                if qty >= 0:
                     products[product_ids[0]] = qty
+                else:
+                    invalid_quantity_values.append('%s %s' % (identifier, qty))
 
             elif len(product_ids) > 1:
                 too_many_products.append(identifier)
@@ -262,7 +257,9 @@ class StockAdapter(BotsCRUDAdapter):
 
             # % to Exclude Calculation
             if supplier.percent_to_exclude:
-                exclude_qty = (supplier.percent_to_exclude / 100.0) * qty
+                # The 'or 1' is for the edge-case where the qty is 1 which will leave an exclude quantity of 0 after
+                # floor()
+                exclude_qty = math.ceil((supplier.percent_to_exclude / 100.0) * qty) or 1
                 qty = qty - int(exclude_qty)
 
             inventory_line_record = {
