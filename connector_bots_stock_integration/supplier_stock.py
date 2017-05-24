@@ -19,6 +19,7 @@
 ##############################################################################
 
 import csv
+import math
 import logging
 from datetime import datetime
 
@@ -256,7 +257,7 @@ class StockAdapter(BotsCRUDAdapter):
 
             # % to Exclude Calculation
             if supplier.percent_to_exclude:
-                exclude_qty = round((supplier.percent_to_exclude / 100.0) * qty)
+                exclude_qty = math.floor((supplier.percent_to_exclude / 100.0) * qty)
                 qty = qty - int(exclude_qty)
 
             inventory_line_record = {
