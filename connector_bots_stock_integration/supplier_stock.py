@@ -113,7 +113,7 @@ class StockAdapter(BotsCRUDAdapter):
 
             barcode = row['SUPPLIER_BARCODE']
             sku = row['SKU']
-            qty = row['QUANTITY']
+            qty = int(row['QUANTITY'])
 
             identifier = '%s %s' % (sku, barcode)
 
@@ -128,14 +128,10 @@ class StockAdapter(BotsCRUDAdapter):
             )
 
             if len(product_ids) == 1:
-                try:
-                    qty = int(qty)
-                    if qty < 1:
-                        raise ValueError()
-                except ValueError:
-                    invalid_quantity_values.append('%s %s' % (identifier, qty))
-                else:
+                if qty >= 0:
                     products[product_ids[0]] = qty
+                else:
+                    invalid_quantity_values.append('%s %s' % (identifier, qty))
 
             elif len(product_ids) > 1:
                 too_many_products.append(identifier)
