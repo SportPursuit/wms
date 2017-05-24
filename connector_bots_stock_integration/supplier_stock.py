@@ -85,17 +85,17 @@ class StockAdapter(BotsCRUDAdapter):
         product_updates, products_error_message = self._check_products(rows)
         supplier, all_supplier_products, supplier_error_message = self._check_supplier(rows, product_updates)
 
-        if supplier.flag_skus_out_of_stock:
-            for product_id in all_supplier_products:
-                if product_id not in product_updates:
-                    product_updates[product_id] = 0
-
         if products_error_message or supplier_error_message:
             raise JobError("""
                 {supplier_errors}
                 {product_errors}
             """.format(supplier_errors=supplier_error_message, product_errors=products_error_message))
         else:
+            if supplier.flag_skus_out_of_stock:
+                for product_id in all_supplier_products:
+                    if product_id not in product_updates:
+                        product_updates[product_id] = 0
+
             return supplier, product_updates
 
     def _check_products(self, rows):
