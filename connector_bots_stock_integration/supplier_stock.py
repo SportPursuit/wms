@@ -259,7 +259,7 @@ class StockAdapter(BotsCRUDAdapter):
             if supplier.percent_to_exclude:
                 # The 'or 1' is for the edge-case where the qty is 1 which will leave an exclude quantity of 0 after
                 # floor()
-                exclude_qty = math.floor((supplier.percent_to_exclude / 100.0) * qty) or 1
+                exclude_qty = math.ceil((supplier.percent_to_exclude / 100.0) * qty) or 1
                 qty = qty - int(exclude_qty)
 
             inventory_line_record = {
