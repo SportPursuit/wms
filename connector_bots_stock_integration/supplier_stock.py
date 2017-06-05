@@ -66,7 +66,7 @@ class StockAdapter(BotsCRUDAdapter):
 
         if bots_file_id and len(bots_file_id) == 1:
 
-            with file_to_process(self.session, bots_file_id[0], raise_if_processed=True) as csv_file:
+            with file_to_process(self.session, bots_file_id[0], raise_if_processed=True, filemode='rU') as csv_file:
                 supplier, product_updates = self._preprocess_rows(csv_file)
 
                 self._create_physical_inventory(supplier, product_updates)
@@ -112,9 +112,9 @@ class StockAdapter(BotsCRUDAdapter):
 
         for row in rows:
 
-            barcode = row['SUPPLIER_BARCODE']
-            sku = row['SKU']
-            qty = int(row['QUANTITY'])
+            barcode = row['SUPPLIER_BARCODE'].strip()
+            sku = row['SKU'].strip()
+            qty = row['QUANTITY']
 
             identifier = '%s %s' % (sku, barcode)
 
@@ -129,16 +129,22 @@ class StockAdapter(BotsCRUDAdapter):
             )
 
             if len(product_ids) == 1:
-                if qty >= 0:
-                    products[product_ids[0]] = qty
-                else:
+                try:
+                    qty = int(qty)
+
+                    if qty >= 0:
+                        products[product_ids[0]] = qty
+                    else:
+                        invalid_quantity_values.append('%s %s' % (identifier, qty))
+
+                except ValueError:
                     invalid_quantity_values.append('%s %s' % (identifier, qty))
 
             elif len(product_ids) > 1:
                 too_many_products.append(identifier)
 
-            else:
-                missing_products.append(identifier)
+            # else:
+            #     missing_products.append(identifier)
 
         error_message = ''
 
@@ -219,10 +225,10 @@ class StockAdapter(BotsCRUDAdapter):
                             error_message += """
                             Products that do not belong to the supplier:
                             {products}
-                            """.format(products='\n'.join(extra_products))
+                            """.format(products='\n'.join(map(str, extra_products)))
 
         return supplier, all_supplier_products, error_message
-                        
+
     def get_supplier_stock(self, backend_id):
 
         csv_regex = r'^.*\.csv$'
