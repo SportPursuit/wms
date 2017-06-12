@@ -69,3 +69,16 @@ class product_product(osv.osv):
                  "the normal forecast quantity OR quantity provided by the supplier stock feed."
         ),
     }
+
+
+class missing_products(osv.Model):
+    _name = "supplier.feed.missing.products"
+
+    _columns = {
+        'filename': fields.char('CSV', size=60, readonly=True),
+        'inventory_id': fields.many2one('stock.inventory', 'Physical Inventory', required=True),
+        'supplier_id': fields.many2one('res.partner', 'Physical Inventory', required=True),
+        'product_sku': fields.char('CSV', size=60, readonly=True),
+        'product_barcode': fields.char('CSV', size=20, readonly=True),
+        'quantity': fields.integer('Quantity', readonly=True)
+    }

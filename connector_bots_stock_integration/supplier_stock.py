@@ -23,7 +23,6 @@ import math
 import logging
 from datetime import datetime
 
-from openerp.osv import orm
 from openerp import pooler, netsvc, SUPERUSER_ID
 from openerp.addons.connector.queue.job import job
 from openerp.addons.connector.exception import JobError
@@ -37,6 +36,42 @@ logger = logging.getLogger(__name__)
 
 
 SUPPLIER_STOCK_FEED = 'Supplier Stock Feed'
+
+
+class ProductDetails(object):
+
+    def __init__(self):
+
+        self.products = {}
+        self.identifiers = {}
+        self.duplicate_rows = set()
+        self.missing_products = []
+        self.too_many_products = []
+        self.invalid_quantity_values = []
+
+    @property
+    def error_message(self):
+        error_message = ''
+
+        if self.too_many_products:
+            error_message += """
+            Multiple products found:
+            {products}
+            """.format(products='\n'.join(self.too_many_products))
+
+        if self.duplicate_rows:
+            error_message += """
+            Duplicate row(s) found:
+            {products}
+            """.format(products='\n'.join(self.duplicate_rows))
+
+        if self.invalid_quantity_values:
+            error_message += """
+            Invalid quantity value(s) found:
+            {products}
+            """.format(products='\n'.join(self.invalid_quantity_values))
+
+        return error_message or None
 
 
 @bots
@@ -60,16 +95,34 @@ class StockAdapter(BotsCRUDAdapter):
 
     def process_stock_file(self, filename):
 
+        missing_products_obj = self.session.pool.get('supplier.feed.missing.products')
+
         bots_file_id = self.session.pool.get('bots.file').search(
             self.session.cr, SUPERUSER_ID, [('full_path', '=', filename)]
         )
 
         if bots_file_id and len(bots_file_id) == 1:
 
-            with file_to_process(self.session, bots_file_id[0], raise_if_processed=True) as csv_file:
-                supplier, product_updates = self._preprocess_rows(csv_file)
+            with file_to_process(self.session, bots_file_id[0], raise_if_processed=True, filemode='rU') as csv_file:
+                supplier, product_details = self._preprocess_rows(csv_file)
 
-                self._create_physical_inventory(supplier, product_updates)
+                inventory_id = self._create_physical_inventory(supplier, product_details)
+
+                for sku, barcode, quantity in product_details.missing_products:
+
+                    try:
+                        missing_product = {
+                            'filename': filename,
+                            'inventory_id': inventory_id,
+                            'supplier_id': supplier.id,
+                            'product_sku': sku,
+                            'product_barcode': barcode,
+                            'quantity': quantity
+                        }
+                        missing_products_obj.create(self.session.cr, self.session.uid, missing_product)
+
+                    except Exception:
+                        logger.exception('Failed to add missing product. %s : %s %s' % (filename, sku, barcode))
 
         else:
             raise Exception('No bots_file entry found for file %s' % filename)
@@ -83,8 +136,10 @@ class StockAdapter(BotsCRUDAdapter):
         if not rows:
             raise Exception('File appears to be empty')
 
-        product_updates, products_error_message = self._check_products(rows)
-        supplier, all_supplier_products, supplier_error_message = self._check_supplier(rows, product_updates)
+        product_details = self._get_product_details(rows)
+        supplier, all_supplier_products, supplier_error_message = self._check_supplier_details(rows, product_details)
+
+        products_error_message = product_details.error_message
 
         if products_error_message or supplier_error_message:
             raise JobError("""
@@ -94,32 +149,28 @@ class StockAdapter(BotsCRUDAdapter):
         else:
             if supplier.flag_skus_out_of_stock:
                 for product_id in all_supplier_products:
-                    if product_id not in product_updates:
-                        product_updates[product_id] = 0
+                    if product_id not in product_details.products:
+                        product_details.products[product_id] = 0
 
-            return supplier, product_updates
+            return supplier, product_details
 
-    def _check_products(self, rows):
+    def _get_product_details(self, rows):
         """ Ensure that the product information in the csv is correct
         """
 
-        products = {}
-        missing_products = []
-        too_many_products = []
-        duplicate_rows = set()
         processed_rows = set()
-        invalid_quantity_values = []
+        product_details = ProductDetails()
 
         for row in rows:
 
-            barcode = row['SUPPLIER_BARCODE']
-            sku = row['SKU']
-            qty = int(row['QUANTITY'])
+            barcode = row['SUPPLIER_BARCODE'].strip()
+            sku = row['SKU'].strip()
+            qty = row['QUANTITY']
 
             identifier = '%s %s' % (sku, barcode)
 
             if identifier in processed_rows:
-                duplicate_rows.add(identifier)
+                product_details.duplicate_rows.add(identifier)
                 continue
             else:
                 processed_rows.add(identifier)
@@ -129,46 +180,30 @@ class StockAdapter(BotsCRUDAdapter):
             )
 
             if len(product_ids) == 1:
-                if qty >= 0:
-                    products[product_ids[0]] = qty
-                else:
-                    invalid_quantity_values.append('%s %s' % (identifier, qty))
+                try:
+                    qty = int(qty)
+
+                    product_id = product_ids[0]
+
+                    product_details.identifiers[product_id] = identifier
+
+                    if qty >= 0:
+                        product_details.products[product_id] = qty
+                    else:
+                        product_details.invalid_quantity_values.append('%s %s' % (identifier, qty))
+
+                except ValueError:
+                    product_details.invalid_quantity_values.append('%s %s' % (identifier, qty))
 
             elif len(product_ids) > 1:
-                too_many_products.append(identifier)
+                product_details.too_many_products.append(identifier)
 
             else:
-                missing_products.append(identifier)
+                product_details.missing_products.append((sku, barcode, qty))
 
-        error_message = ''
+        return product_details
 
-        if missing_products:
-            error_message += """
-            Missing product(s):
-            {products}
-            """.format(products='\n'.join(missing_products))
-
-        if too_many_products:
-            error_message += """
-            Multiple products found:
-            {products}
-            """.format(products='\n'.join(missing_products))
-
-        if duplicate_rows:
-            error_message += """
-            Duplicate row(s) found:
-            {products}
-            """.format(products='\n'.join(duplicate_rows))
-
-        if invalid_quantity_values:
-            error_message += """
-            Invalid quantity value(s) found:
-            {products}
-            """.format(products='\n'.join(invalid_quantity_values))
-
-        return products, error_message
-
-    def _check_supplier(self, rows, product_updates):
+    def _check_supplier_details(self, rows, product_details):
         """ Ensure that the supplier information in the csv is correct
         """
 
@@ -214,15 +249,16 @@ class StockAdapter(BotsCRUDAdapter):
                     )
 
                     if supplier:
-                        extra_products = set(product_updates.keys()) - set(all_supplier_products)
+                        extra_products = set(product_details.products.keys()) - set(all_supplier_products)
+                        extra_products = '\n'.join([product_details.identifiers[product] for product in extra_products])
                         if extra_products:
                             error_message += """
                             Products that do not belong to the supplier:
                             {products}
-                            """.format(products='\n'.join(extra_products))
+                            """.format(products=extra_products)
 
         return supplier, all_supplier_products, error_message
-                        
+
     def get_supplier_stock(self, backend_id):
 
         csv_regex = r'^.*\.csv$'
@@ -239,7 +275,7 @@ class StockAdapter(BotsCRUDAdapter):
     # This is copy-pasted and modified from sp_backorder_limt SportPursuitBackorderProductImport in the interest
     # of getting this released sooner rather than later.
 
-    def _create_physical_inventory(self, supplier, product_updates):
+    def _create_physical_inventory(self, supplier, product_details):
         stock_location_id = self.session.pool.get('stock.location').search(
             self.session.cr, SUPERUSER_ID, [('name', '=', SUPPLIER_STOCK_FEED)]
         )[0]
@@ -253,7 +289,7 @@ class StockAdapter(BotsCRUDAdapter):
 
         inventory_id = self.session.create('stock.inventory', inventory_record)
 
-        for product_id, qty in product_updates.iteritems():
+        for product_id, qty in product_details.products.iteritems():
 
             # % to Exclude Calculation
             if supplier.percent_to_exclude:
@@ -275,6 +311,8 @@ class StockAdapter(BotsCRUDAdapter):
         inventory_obj = self.session.pool['stock.inventory']
         inventory_obj.action_confirm(self.session.cr, SUPERUSER_ID, [inventory_id], self.session.context)
         inventory_obj.action_done(self.session.cr, SUPERUSER_ID, [inventory_id], self.session.context)
+
+        return inventory_id
 
 
 @job
