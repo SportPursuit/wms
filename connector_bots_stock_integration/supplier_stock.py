@@ -95,6 +95,8 @@ class StockAdapter(BotsCRUDAdapter):
 
     def process_stock_file(self, filename):
 
+        missing_products_obj = self.session.pool.get('supplier.feed.missing.products')
+
         bots_file_id = self.session.pool.get('bots.file').search(
             self.session.cr, SUPERUSER_ID, [('full_path', '=', filename)]
         )
@@ -104,7 +106,23 @@ class StockAdapter(BotsCRUDAdapter):
             with file_to_process(self.session, bots_file_id[0], raise_if_processed=True, filemode='rU') as csv_file:
                 supplier, product_details = self._preprocess_rows(csv_file)
 
-                self._create_physical_inventory(supplier, product_details)
+                inventory_id = self._create_physical_inventory(supplier, product_details)
+
+                for sku, barcode, quantity in product_details.missing_products:
+
+                    try:
+                        missing_product = {
+                            'filename': filename,
+                            'inventory_id': inventory_id,
+                            'supplier_id': supplier.id,
+                            'product_sku': sku,
+                            'product_barcode': barcode,
+                            'quantity': quantity
+                        }
+                        missing_products_obj.create(self.session.cr, self.session.uid, missing_product)
+
+                    except Exception:
+                        logger.exception('Failed to add missing product. %s : %s %s' % (filename, sku, barcode))
 
         else:
             raise Exception('No bots_file entry found for file %s' % filename)
@@ -181,7 +199,7 @@ class StockAdapter(BotsCRUDAdapter):
                 product_details.too_many_products.append(identifier)
 
             else:
-                product_details.missing_products.append(identifier)
+                product_details.missing_products.append((sku, barcode, qty))
 
         return product_details
 
@@ -294,10 +312,7 @@ class StockAdapter(BotsCRUDAdapter):
         inventory_obj.action_confirm(self.session.cr, SUPERUSER_ID, [inventory_id], self.session.context)
         inventory_obj.action_done(self.session.cr, SUPERUSER_ID, [inventory_id], self.session.context)
 
-        # message_body = 'Extra products: <br>' + '<br>'.join(product_details.missing_products)
-        # inventory_obj.message_post(
-        #     self.session.cr, SUPERUSER_ID, [inventory_id], body=message_body, subject='Import Notes'
-        # )
+        return inventory_id
 
 
 @job
