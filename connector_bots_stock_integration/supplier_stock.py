@@ -292,7 +292,7 @@ class StockAdapter(BotsCRUDAdapter):
         for product_id, qty in product_details.products.iteritems():
 
             # % to Exclude Calculation
-            if supplier.percent_to_exclude:
+            if qty > 0 and supplier.percent_to_exclude > 0:
                 # The 'or 1' is for the edge-case where the qty is 1 which will leave an exclude quantity of 0 after
                 # floor()
                 exclude_qty = math.ceil((supplier.percent_to_exclude / 100.0) * qty) or 1
