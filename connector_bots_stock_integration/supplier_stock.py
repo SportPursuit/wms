@@ -264,10 +264,24 @@ class StockAdapter(BotsCRUDAdapter):
         csv_regex = r'^.*\.csv$'
         file_ids = self._search(csv_regex)
 
+        job_obj = self.session.pool.get('queue.job')
+
         for _, filename in file_ids:
-            process_supplier_stock_file.delay(
-                self.session, 'bots.backend.supplier.feed', backend_id, filename, priority=5
-            )
+
+            # We want to be sure that we only spawn one active job for each file
+            # Filtering by state != done will let us re-run an archived file if required
+            # NOTE: Potential performance impact - might need to refactor into an sql query later on
+            query = [
+                ('model_name', '=', 'bots.backend.supplier.feed'),
+                ('func_string', 'ilike', '%{filename}%'.format(filename=filename)),
+                ('state', '!=', 'done')
+            ]
+
+            if not job_obj.search(self.session.cr, self.session.uid, query):
+
+                process_supplier_stock_file.delay(
+                    self.session, 'bots.backend.supplier.feed', backend_id, filename, priority=5
+                )
 
         return True
 
