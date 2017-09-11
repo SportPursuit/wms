@@ -247,17 +247,41 @@ class StockAdapter(BotsCRUDAdapter):
                     all_supplier_products = self.session.pool.get('product.product').search(
                         self.session.cr, SUPERUSER_ID, [('seller_ids.name.id', '=', supplier.id)]
                     )
-
                     if supplier:
-                        extra_products = set(product_details.products.keys()) - set(all_supplier_products)
-                        extra_products = '\n'.join([product_details.identifiers[product] for product in extra_products])
+                        extra_products = self.apply_exclusion_rules(supplier, product_details, all_supplier_products)
                         if extra_products:
+                            extra_products = '\n'.join(
+                                [product_details.identifiers[product.id] for product in extra_products])
                             error_message += """
                             Products that do not belong to the supplier:
                             {products}
                             """.format(products=extra_products)
 
         return supplier, all_supplier_products, error_message
+
+    def apply_exclusion_rules(self, supplier, product_details, all_supplier_products):
+        """Return extra products that do not belong to the supplier
+        or set feed quantity to zero by reference if match rules"""
+        incorrect_products = []  # Products that don't match rules below
+        # products from odoo db
+        # products from csv that don't match products from odoo db
+        extra_products = list(set(product_details.products.keys()).difference(all_supplier_products))
+        extra_products = self.session.pool.get('product.product').browse(
+            self.session.cr, SUPERUSER_ID, extra_products
+        )
+        for extra_product in extra_products:
+            for seller_id in extra_product.seller_ids:
+                res_partner = seller_id.name
+                # The Supplier ID in the feed does not match the Supplier ID of the product in Odoo
+                if res_partner.id != supplier.id:
+                    # The Supplier ID in the feed is the parent of the Supplier ID of the product in Odoo OR
+                    # The Supplier ID in the feed shares the parent of the Supplier ID of the product in Odoo
+                    if res_partner.id == res_partner.parent_id or res_partner.parent_id == supplier.parent_id:
+                        # The SKU's feed quantity should be set to zero
+                        product_details.products[extra_product] = 0
+                    else:
+                        incorrect_products.append(extra_product)
+        return incorrect_products
 
     def get_supplier_stock(self, backend_id):
 
