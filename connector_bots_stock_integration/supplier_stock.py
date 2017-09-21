@@ -251,12 +251,11 @@ class StockAdapter(BotsCRUDAdapter):
                         extra_products = self.apply_exclusion_rules(supplier, product_details, all_supplier_products)
                         if extra_products:
                             extra_products = '\n'.join(
-                                [product_details.identifiers[product.id] for product in extra_products])
+                                [product_details.identifiers[product] for product in extra_products])
                             error_message += """
                             Products that do not belong to the supplier:
                             {products}
                             """.format(products=extra_products)
-
         return supplier, all_supplier_products, error_message
 
     def apply_exclusion_rules(self, supplier, product_details, all_supplier_products):
@@ -276,11 +275,11 @@ class StockAdapter(BotsCRUDAdapter):
                 if res_partner.id != supplier.id:
                     # The Supplier ID in the feed is the parent of the Supplier ID of the product in Odoo OR
                     # The Supplier ID in the feed shares the parent of the Supplier ID of the product in Odoo
-                    if res_partner.id == res_partner.parent_id or res_partner.parent_id == supplier.parent_id:
+                    if res_partner.id == supplier.parent_id.id or res_partner.parent_id == supplier.parent_id.id:
                         # The SKU's feed quantity should be set to zero
-                        product_details.products[extra_product] = 0
+                        product_details.products[extra_product.id] = 0
                     else:
-                        incorrect_products.append(extra_product)
+                        incorrect_products.append(extra_product.id)
         return incorrect_products
 
     def get_supplier_stock(self, backend_id):
@@ -297,8 +296,8 @@ class StockAdapter(BotsCRUDAdapter):
             # NOTE: Potential performance impact - might need to refactor into an sql query later on
             query = [
                 ('model_name', '=', 'bots.backend.supplier.feed'),
-                ('func_string', 'ilike', '%{filename}%'.format(filename=filename)),
-                ('state', '!=', 'done')
+                ('func_string', 'like', '%{filename}%'.format(filename=filename)),
+                ('state', 'in', ('failed', 'pending', 'started', 'enqueued'))
             ]
 
             if not job_obj.search(self.session.cr, self.session.uid, query):
