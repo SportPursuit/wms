@@ -275,7 +275,7 @@ class StockAdapter(BotsCRUDAdapter):
                 if res_partner.id != supplier.id:
                     # The Supplier ID in the feed is the parent of the Supplier ID of the product in Odoo OR
                     # The Supplier ID in the feed shares the parent of the Supplier ID of the product in Odoo
-                    if res_partner.id == supplier.parent_id.id or res_partner.parent_id == supplier.parent_id.id:
+                    if res_partner.id == supplier.parent_id.id or res_partner.parent_id.id == supplier.parent_id.id:
                         # The SKU's feed quantity should be set to zero
                         product_details.products[extra_product.id] = 0
                     else:
