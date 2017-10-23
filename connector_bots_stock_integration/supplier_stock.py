@@ -292,12 +292,11 @@ class StockAdapter(BotsCRUDAdapter):
         for _, filename in file_ids:
 
             # We want to be sure that we only spawn one active job for each file
-            # Filtering by state != done will let us re-run an archived file if required
-            # NOTE: Potential performance impact - might need to refactor into an sql query later on
+            # Not querying for DONE jobs allows us to re-run archived jobs if required
             query = [
                 ('model_name', '=', 'bots.backend.supplier.feed'),
                 ('func_string', 'like', '%{filename}%'.format(filename=filename)),
-                ('state', 'in', ('failed', 'pending', 'started', 'enqueued'))
+                ('state', 'in', ['failed', 'pending', 'started', 'enqueued'])
             ]
 
             if not job_obj.search(self.session.cr, self.session.uid, query):
