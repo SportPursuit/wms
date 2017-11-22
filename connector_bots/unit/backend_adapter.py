@@ -31,6 +31,9 @@ from contextlib import contextmanager
 import os
 import time
 import re
+import uuid
+
+from psycopg2 import IntegrityError
 
 _logger = logging.getLogger(__name__)
 
@@ -125,8 +128,7 @@ class BotsCRUDAdapter(CRUDAdapter):
             while True:
                 loop_counter += 1
                 assert loop_counter < 50
-                ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                file_name = pattern % (ts,)
+                file_name = pattern % (uuid.uuid4(),)
                 full_path = os.path.join(loc, file_name)
                 arch_path = os.path.join(self.bots.location_archive, file_name)
 
@@ -135,8 +137,11 @@ class BotsCRUDAdapter(CRUDAdapter):
                     _cr.commit()
                     time.sleep(0.1)
                     continue
+                try:
+                    new_file = file_obj.create(_cr, SUPERUSER_ID, {'full_path': full_path, 'temp_path': full_path + ".tmp", 'arch_path': arch_path})
+                except IntegrityError:
+                    raise RetryableJobError('Tried to create a non-unique bots_file entry. Retrying')
 
-                new_file = file_obj.create(_cr, SUPERUSER_ID, {'full_path': full_path, 'temp_path': full_path + ".tmp", 'arch_path': arch_path})
                 _cr.commit()
                 _cr.execute("SELECT id FROM bots_file WHERE id = %s FOR UPDATE NOWAIT" % (new_file,))
 
