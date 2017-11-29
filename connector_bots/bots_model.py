@@ -122,16 +122,18 @@ class BotsBackend(orm.Model):
         warehouse_ids = warehouse_obj.search(cr, uid, [('backend_id', 'in', ids)], context=context)
         warehouses = warehouse_obj.browse(cr, uid, warehouse_ids, context=context)
         for warehouse in warehouses:
-            picking_types = []
+            session = ConnectorSession(cr, uid, context=context)
+
             if warehouse.backend_id.feat_picking_in_conf:
-                picking_types.append('in')
-            if warehouse.backend_id.feat_picking_out_conf:
-                picking_types.append('out')
-            if picking_types:
-                session = ConnectorSession(cr, uid, context=context)
                 import_picking_confirmation.delay(
-                    session, 'bots.warehouse', warehouse.id, picking_types, new_cr=new_cr, priority=5
+                    session, 'bots.warehouse', warehouse.id, ['in'], new_cr=new_cr, priority=5
                 )
+
+            if warehouse.backend_id.feat_picking_out_conf:
+                import_picking_confirmation.delay(
+                    session, 'bots.warehouse', warehouse.id, ['out'], new_cr=new_cr, priority=5
+                )
+
         return True
 
     def datetime_convert(self, cr, uid, ids, dt=None, context=None):
