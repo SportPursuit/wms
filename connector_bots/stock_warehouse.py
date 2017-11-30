@@ -411,7 +411,13 @@ class WarehouseAdapter(BotsCRUDAdapter):
         wf_service = netsvc.LocalService("workflow")
         exceptions = []
 
-        FILENAME = r'^picking_conf_.*\.json$'
+        if picking_types == ['in']:
+            FILENAME = r'^picking_conf_in_.*\.json$'
+        elif picking_types == ['out']:
+            FILENAME = r'^picking_conf_out_.*\.json$'
+        else:
+            FILENAME = r'^picking_conf_.*\.json$'
+
         file_ids = self._search(FILENAME)
         res = []
         ctx = self.session.context.copy()
