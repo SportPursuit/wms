@@ -25,7 +25,7 @@ from openerp.tools.misc import DEFAULT_SERVER_DATETIME_FORMAT
 
 from openerp.addons.connector.session import ConnectorSession
 from openerp.addons.connector.queue.job import job
-from openerp.addons.connector.exception import JobError, NoExternalId
+from openerp.addons.connector.exception import JobError, NoExternalId, RetryableJobError
 from openerp.addons.connector.unit.synchronizer import ImportSynchronizer
 from openerp.addons.magentoerpconnect.stock_tracking import export_tracking_number
 
@@ -35,12 +35,14 @@ from .backend import bots
 from .connector import get_environment, add_checkpoint
 
 import json
+import logging
 import traceback
 from datetime import datetime
 
 from psycopg2 import OperationalError
 
 file_lock_msg = 'could not obtain lock on row in relation "bots_file"'
+logger = logging.getLogger(__name__)
 
 NOT_TRACKED = 'NOT_TRACKED'
 BLANK_LABEL = 'BL'
@@ -710,12 +712,14 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                 'bots_id': '%s %s' % (self.backend_record.name, time,),})
                             add_checkpoint(_session, 'stock.inventory', inventory_id, self.backend_record.id)
 
-            except OperationalError, e:
+            except OperationalError:
                 # file_lock_msg suggests that another job is already handling these files,
                 # so it is safe to continue without any further action.
                 if e.message and file_lock_msg in e.message:
-                    exception = "Exception %s when processing file %s: %s" % (e, file_id[1], traceback.format_exc())
-                    exceptions.append(exception)
+                    logger.exception("OperationalError when processing file %s", file_id[1])
+
+            except RetryableJobError:
+                logger.exception("RetryableJobError when processing file %s", file_id[1])
             except Exception, e:
                 # Log error then continue processing files
                 exception = "Exception %s when processing file %s: %s" % (e, file_id[1], traceback.format_exc())

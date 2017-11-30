@@ -32,6 +32,8 @@ import os
 import time
 import re
 
+from psycopg2._psycopg import IntegrityError
+
 _logger = logging.getLogger(__name__)
 
 @contextmanager
@@ -185,7 +187,10 @@ class BotsCRUDAdapter(CRUDAdapter):
                             _logger.exception('Error trying to move file %s -> %s', file[1], f['arch_path'])
                         continue
                 else:
-                    file_id = file_obj.create(_cr, SUPERUSER_ID, {'full_path': file[1], 'arch_path': file[2], 'temp_path': file[1] + ".tmp"}, context=self.session.context)
+                    try:
+                        file_id = file_obj.create(_cr, SUPERUSER_ID, {'full_path': file[1], 'arch_path': file[2], 'temp_path': file[1] + ".tmp"}, context=self.session.context)
+                    except IntegrityError:
+                        raise RetryableJobError('Error creating bots.file entry. Retrying')
                 file_ids.append((file_id, file[1]))
             _cr.commit()
         finally:
