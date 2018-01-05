@@ -23,7 +23,7 @@ import math
 import logging
 from datetime import datetime
 
-from openerp import pooler, netsvc, SUPERUSER_ID
+from openerp import SUPERUSER_ID
 from openerp.addons.connector.queue.job import job
 from openerp.addons.connector.exception import JobError
 from openerp.addons.connector.unit.synchronizer import ImportSynchronizer
@@ -274,8 +274,10 @@ class StockAdapter(BotsCRUDAdapter):
                 # The Supplier ID in the feed does not match the Supplier ID of the product in Odoo
                 if res_partner.id != supplier.id:
                     # The Supplier ID in the feed is the parent of the Supplier ID of the product in Odoo OR
-                    # The Supplier ID in the feed shares the parent of the Supplier ID of the product in Odoo
-                    if res_partner.id == supplier.parent_id.id or res_partner.parent_id.id == supplier.parent_id.id:
+                    # The Supplier ID in the feed shares the parent of the Supplier ID of the product in Odoo OR
+                    # The product supplier ID is the preferred supplier (seller_info_id) in Odoo
+                    if res_partner.id == supplier.parent_id.id or res_partner.parent_id.id == supplier.parent_id.id \
+                            or (extra_product.seller_info_id == res_partner.id == res_partner.parent_id.id):
                         # The SKU's feed quantity should be set to zero
                         product_details.products[extra_product.id] = 0
                     else:
