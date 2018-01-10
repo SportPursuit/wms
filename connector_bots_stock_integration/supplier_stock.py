@@ -146,13 +146,16 @@ class StockAdapter(BotsCRUDAdapter):
                 {supplier_errors}
                 {product_errors}
             """.format(supplier_errors=supplier_error_message, product_errors=products_error_message))
-        else:
-            if supplier.flag_skus_out_of_stock:
-                for product_id in all_supplier_products:
-                    if product_id not in product_details.products:
-                        product_details.products[product_id] = 0
 
-            return supplier, product_details
+        feed_products = self.session.pool.get('product.product').browse(
+            self.session.cr, SUPERUSER_ID, product_details.products.keys()
+        )
+        for product_id in feed_products:
+            if product_id.seller_id != supplier.id:
+                # The product supplier ID is the preferred supplier (seller_info_id) in Odoo
+                del product_details.products[product_id.id]  # ignores feed product
+
+        return supplier, product_details
 
     def _get_product_details(self, rows):
         """ Ensure that the product information in the csv is correct
@@ -182,17 +185,16 @@ class StockAdapter(BotsCRUDAdapter):
             if len(product_ids) == 1:
                 try:
                     qty = int(qty)
-
-                    product_id = product_ids[0]
-
-                    product_details.identifiers[product_id] = identifier
-
-                    if qty >= 0:
-                        product_details.products[product_id] = qty
-                    else:
-                        product_details.invalid_quantity_values.append('%s %s' % (identifier, qty))
-
                 except ValueError:
+                    product_details.invalid_quantity_values.append('%s %s' % (identifier, qty))
+
+                product_id = product_ids[0]
+
+                product_details.identifiers[product_id] = identifier
+
+                if qty >= 0:
+                    product_details.products[product_id] = qty
+                else:
                     product_details.invalid_quantity_values.append('%s %s' % (identifier, qty))
 
             elif len(product_ids) > 1:
@@ -275,9 +277,8 @@ class StockAdapter(BotsCRUDAdapter):
                 if res_partner.id != supplier.id:
                     # The Supplier ID in the feed is the parent of the Supplier ID of the product in Odoo OR
                     # The Supplier ID in the feed shares the parent of the Supplier ID of the product in Odoo OR
-                    # The product supplier ID is the preferred supplier (seller_info_id) in Odoo
-                    if res_partner.id == supplier.parent_id.id or res_partner.parent_id.id == supplier.parent_id.id \
-                            or (extra_product.seller_info_id == res_partner.id == res_partner.parent_id.id):
+                    if supplier.flag_skus_out_of_stock or supplier.parent_id.id == res_partner.id or \
+                            supplier.parent_id.id == res_partner.parent_id.id:
                         # The SKU's feed quantity should be set to zero
                         product_details.products[extra_product.id] = 0
                     else:
