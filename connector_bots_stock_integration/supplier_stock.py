@@ -150,10 +150,10 @@ class StockAdapter(BotsCRUDAdapter):
         feed_products = self.session.pool.get('product.product').browse(
             self.session.cr, SUPERUSER_ID, product_details.products.keys()
         )
-        for product_id in feed_products:
-            if product_id.seller_id != supplier.id:
+        for product in feed_products:
+            if product.seller_id.id != supplier.id:
                 # The product supplier ID is the preferred supplier (seller_info_id) in Odoo
-                del product_details.products[product_id.id]  # ignores feed product
+                del product_details.products[product.id]  # ignores feed product
 
         return supplier, product_details
 
@@ -271,13 +271,16 @@ class StockAdapter(BotsCRUDAdapter):
             self.session.cr, SUPERUSER_ID, extra_products
         )
         for extra_product in extra_products:
+            if supplier.flag_skus_out_of_stock:
+                product_details.products[extra_product.id] = 0
+                continue
             for seller_id in extra_product.seller_ids:
                 res_partner = seller_id.name
                 # The Supplier ID in the feed does not match the Supplier ID of the product in Odoo
                 if res_partner.id != supplier.id:
                     # The Supplier ID in the feed is the parent of the Supplier ID of the product in Odoo OR
                     # The Supplier ID in the feed shares the parent of the Supplier ID of the product in Odoo OR
-                    if supplier.flag_skus_out_of_stock or supplier.parent_id.id == res_partner.id or \
+                    if supplier.parent_id.id == res_partner.id or \
                             supplier.parent_id.id == res_partner.parent_id.id:
                         # The SKU's feed quantity should be set to zero
                         product_details.products[extra_product.id] = 0
