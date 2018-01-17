@@ -137,7 +137,7 @@ class StockAdapter(BotsCRUDAdapter):
             raise Exception('File appears to be empty')
 
         product_details = self._get_product_details(rows)
-        supplier, all_supplier_products, supplier_error_message = self._check_supplier_details(rows, product_details)
+        supplier, supplier_error_message = self._check_supplier_details(rows, product_details)
 
         products_error_message = product_details.error_message
 
@@ -152,8 +152,9 @@ class StockAdapter(BotsCRUDAdapter):
         )
         for product in feed_products:
             if product.seller_id.id != supplier.id:
-                # The product supplier ID is the preferred supplier (seller_info_id) in Odoo
-                del product_details.products[product.id]  # ignores feed product
+                # We only want to update the stock quantities for products that are not in flash sales,
+                # this is determined by who is the preferred supplier on the produc
+                del product_details.products[product.id]
 
         return supplier, product_details
 
@@ -212,7 +213,6 @@ class StockAdapter(BotsCRUDAdapter):
         supplier_ids = list({row['SUPPLIER_ID'] for row in rows})
         error_message = ''
         supplier = None
-        all_supplier_products = []
 
         if len(supplier_ids) > 1:
             error_message = """
@@ -258,7 +258,7 @@ class StockAdapter(BotsCRUDAdapter):
                             Products that do not belong to the supplier:
                             {products}
                             """.format(products=extra_products)
-        return supplier, all_supplier_products, error_message
+        return supplier, error_message
 
     def apply_exclusion_rules(self, supplier, product_details, all_supplier_products):
         """Return extra products that do not belong to the supplier
