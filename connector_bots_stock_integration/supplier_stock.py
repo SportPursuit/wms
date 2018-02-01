@@ -152,9 +152,9 @@ class StockAdapter(BotsCRUDAdapter):
         )
         for product in feed_products:
             if product.seller_id.id != supplier.id:
-                # We only want to update the stock quantities for products that are not in flash sales,
-                # this is determined by who is the preferred supplier on the produc
-                del product_details.products[product.id]
+                # Supplier feed quantity should be 0 as the supplier ID in
+                # the stock feed does not match the preferred supplier on the product
+                product_details.products[product.id] = 0
 
         return supplier, product_details
 
