@@ -147,15 +147,6 @@ class StockAdapter(BotsCRUDAdapter):
                 {product_errors}
             """.format(supplier_errors=supplier_error_message, product_errors=products_error_message))
 
-        feed_products = self.session.pool.get('product.product').browse(
-            self.session.cr, SUPERUSER_ID, product_details.products.keys()
-        )
-        for product in feed_products:
-            if product.seller_id.id != supplier.id:
-                # Supplier feed quantity should be 0 as the supplier ID in
-                # the stock feed does not match the preferred supplier on the product
-                product_details.products[product.id] = 0
-
         return supplier, product_details
 
     def _get_product_details(self, rows):
@@ -264,12 +255,11 @@ class StockAdapter(BotsCRUDAdapter):
         """Return extra products that do not belong to the supplier
         or set feed quantity to zero by reference if match rules"""
         incorrect_products = []  # Products that don't match rules below
+        product_model = self.session.pool.get('product.product')
         # products from odoo db
         # products from csv that don't match products from odoo db
         extra_products = list(set(product_details.products.keys()).difference(all_supplier_products))
-        extra_products = self.session.pool.get('product.product').browse(
-            self.session.cr, SUPERUSER_ID, extra_products
-        )
+        extra_products = product_model.browse(self.session.cr, SUPERUSER_ID, extra_products)
         for extra_product in extra_products:
             if supplier.flag_skus_out_of_stock:
                 product_details.products[extra_product.id] = 0
@@ -286,7 +276,27 @@ class StockAdapter(BotsCRUDAdapter):
                         product_details.products[extra_product.id] = 0
                     else:
                         incorrect_products.append(extra_product.id)
+
+        feed_products = product_model.browse(self.session.cr, SUPERUSER_ID, product_details.products.keys())
+        for product in feed_products:
+            if self._is_preffered_supplier(product, supplier):
+                # Supplier feed quantity should be 0 as the supplier ID in
+                # the stock feed does not match the preferred supplier on the product
+                product_details.products[product.id] = 0
+
+        # products not listed in the feed
+        not_listed_products = list(set(all_supplier_products).difference(extra_products))
+        not_listed_products = product_model.browse(self.session.cr, SUPERUSER_ID, not_listed_products)
+        for product in not_listed_products:
+            if self._is_preffered_supplier(product, supplier):
+                # Clear supplier feed qty for all products not listed in the feed
+                product_details.products[product.id] = 0
+
         return incorrect_products
+
+    def _is_preffered_supplier(self, product, supplier):
+        """Check if supplier from the feed is the preferred supplier of the product"""
+        return product.seller_id.id != supplier.id
 
     def get_supplier_stock(self, backend_id):
 
