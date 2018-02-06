@@ -333,12 +333,9 @@ class StockAdapter(BotsCRUDAdapter):
 
         for product_id, qty in product_details.products.iteritems():
 
-            # % to Exclude Calculation
-            if qty > 0 and supplier.percent_to_exclude > 0:
-                # The 'or 1' is for the edge-case where the qty is 1 which will leave an exclude quantity of 0 after
-                # floor()
-                exclude_qty = math.ceil((supplier.percent_to_exclude / 100.0) * qty) or 1
-                qty = qty - int(exclude_qty)
+            # Apply stock feed threshold
+            if supplier.stock_feed_threshold and 0 < qty <= supplier.stock_feed_threshold:
+                qty = 0
 
             inventory_line_record = {
                 'product_uom': 1,
