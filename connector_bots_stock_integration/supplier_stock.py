@@ -279,24 +279,23 @@ class StockAdapter(BotsCRUDAdapter):
 
         feed_products = product_model.browse(self.session.cr, SUPERUSER_ID, product_details.products.keys())
         for product in feed_products:
-            if self._is_preffered_supplier(product, supplier):
-                # Supplier feed quantity should be 0 as the supplier ID in
-                # the stock feed does not match the preferred supplier on the product
+            if not self._is_preferred_supplier(product, supplier):
+                # Clear supplier feed quantity for all products in the feed
                 product_details.products[product.id] = 0
 
         # products not listed in the feed
         not_listed_products = list(set(all_supplier_products).difference(extra_products))
         not_listed_products = product_model.browse(self.session.cr, SUPERUSER_ID, not_listed_products)
         for product in not_listed_products:
-            if self._is_preffered_supplier(product, supplier):
+            if not self._is_preferred_supplier(product, supplier):
                 # Clear supplier feed qty for all products not listed in the feed
                 product_details.products[product.id] = 0
 
         return incorrect_products
 
-    def _is_preffered_supplier(self, product, supplier):
+    def _is_preferred_supplier(self, product, supplier):
         """Check if supplier from the feed is the preferred supplier of the product"""
-        return product.seller_id.id != supplier.id
+        return product.seller_id.id == supplier.id
 
     def get_supplier_stock(self, backend_id):
 
