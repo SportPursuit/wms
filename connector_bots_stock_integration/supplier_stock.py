@@ -137,7 +137,7 @@ class StockAdapter(BotsCRUDAdapter):
             raise Exception('File appears to be empty')
 
         product_details = self._get_product_details(rows)
-        supplier, supplier_error_message = self._check_supplier_details(rows, product_details)
+        supplier, all_supplier_products, supplier_error_message = self._check_supplier_details(rows, product_details)
 
         products_error_message = product_details.error_message
 
@@ -147,15 +147,7 @@ class StockAdapter(BotsCRUDAdapter):
                 {product_errors}
             """.format(supplier_errors=supplier_error_message, product_errors=products_error_message))
 
-        feed_products = self.session.pool.get('product.product').browse(
-            self.session.cr, SUPERUSER_ID, product_details.products.keys()
-        )
-        for product in feed_products:
-            if product.seller_id.id != supplier.id:
-                # Supplier feed quantity should be 0 as the supplier ID in
-                # the stock feed does not match the preferred supplier on the product
-                product_details.products[product.id] = 0
-
+        self.apply_clear_products_rules(supplier, all_supplier_products, product_details)
         return supplier, product_details
 
     def _get_product_details(self, rows):
@@ -209,7 +201,7 @@ class StockAdapter(BotsCRUDAdapter):
     def _check_supplier_details(self, rows, product_details):
         """ Ensure that the supplier information in the csv is correct
         """
-
+        all_supplier_products = []
         supplier_ids = list({row['SUPPLIER_ID'] for row in rows})
         error_message = ''
         supplier = None
@@ -258,22 +250,18 @@ class StockAdapter(BotsCRUDAdapter):
                             Products that do not belong to the supplier:
                             {products}
                             """.format(products=extra_products)
-        return supplier, error_message
+        return supplier, all_supplier_products, error_message
 
     def apply_exclusion_rules(self, supplier, product_details, all_supplier_products):
         """Return extra products that do not belong to the supplier
         or set feed quantity to zero by reference if match rules"""
         incorrect_products = []  # Products that don't match rules below
+        product_model = self.session.pool.get('product.product')
         # products from odoo db
         # products from csv that don't match products from odoo db
         extra_products = list(set(product_details.products.keys()).difference(all_supplier_products))
-        extra_products = self.session.pool.get('product.product').browse(
-            self.session.cr, SUPERUSER_ID, extra_products
-        )
+        extra_products = product_model.browse(self.session.cr, SUPERUSER_ID, extra_products)
         for extra_product in extra_products:
-            if supplier.flag_skus_out_of_stock:
-                product_details.products[extra_product.id] = 0
-                continue
             for seller_id in extra_product.seller_ids:
                 res_partner = seller_id.name
                 # The Supplier ID in the feed does not match the Supplier ID of the product in Odoo
@@ -286,7 +274,22 @@ class StockAdapter(BotsCRUDAdapter):
                         product_details.products[extra_product.id] = 0
                     else:
                         incorrect_products.append(extra_product.id)
+
         return incorrect_products
+
+    def apply_clear_products_rules(self, supplier, all_supplier_products, product_details):
+        """Clear supplier's products on certain conditions"""
+        products = self.session.pool.get('product.product').browse(
+            self.session.cr, SUPERUSER_ID, all_supplier_products)
+        for product in products:
+            #  Supplier feed quantity should be 0 as the supplier ID in
+            #  the stock feed does not match the preferred supplier on the product
+            if product.id in product_details.products:
+                if product.seller_id.id != supplier.id:
+                    product_details.products[product.id] = 0
+            # Clear supplier's products that are not listed in the feed, only if the flag is checked
+            elif supplier.flag_skus_out_of_stock:
+                product_details.products[product.id] = 0
 
     def get_supplier_stock(self, backend_id):
 
