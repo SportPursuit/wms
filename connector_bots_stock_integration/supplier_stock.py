@@ -287,10 +287,9 @@ class StockAdapter(BotsCRUDAdapter):
             if product.id in product_details.products:
                 if product.seller_id.id != supplier.id:
                     product_details.products[product.id] = 0
-            else:
-                # Clear supplier's products that are not listed in the feed, only if the flag is checked
-                if supplier.flag_skus_out_of_stock:
-                    product_details.products[product.id] = 0
+            # Clear supplier's products that are not listed in the feed, only if the flag is checked
+            elif supplier.flag_skus_out_of_stock:
+                product_details.products[product.id] = 0
 
     def get_supplier_stock(self, backend_id):
 
