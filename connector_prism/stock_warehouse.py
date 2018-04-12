@@ -71,6 +71,12 @@ class BotsStockWarehouse(orm.Model):
     def purchase_cutoff(self, cr, uid, ids, all_purchase_ids, context=None):
         '''Find purchases with cut-off passed and export'''
 
+        for purchase_id in all_purchase_ids:
+            self._purchase_cutoff(cr, uid, ids, purchase_id, context=context)
+
+        return True
+
+    def _purchase_cutoff(self, cr, uid, ids, purchase_id, context=None):
         purchase_obj = self.pool.get('purchase.order')
         move_obj = self.pool.get('stock.move')
         picking_obj = self.pool.get('stock.picking')
@@ -80,7 +86,7 @@ class BotsStockWarehouse(orm.Model):
 
         for warehouse in self.browse(cr, uid, ids, context=context):
             purchase_ids = purchase_obj.search(cr, uid, [('warehouse_id', '=', warehouse.warehouse_id.id),
-                                                         ('id', 'in', all_purchase_ids),
+                                                         ('id', '=', purchase_id),
                                                          ('bots_cut_off', '=', False)], context=context)
             # Find all linked moves for all purchases
             moves = []

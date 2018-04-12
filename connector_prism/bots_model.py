@@ -18,6 +18,8 @@
 #
 ##############################################################################
 
+from collections import defaultdict
+
 from openerp.osv import fields, orm
 from .stock_warehouse import purchase_cutoff
 from openerp.addons.connector.session import ConnectorSession
@@ -66,6 +68,16 @@ class BotsBackend(orm.Model):
                                                          ('bots_cut_off', '=', False)], context=context)
                 if purchase_ids:
                     session = ConnectorSession(cr, uid, context=context)
-                    for purchase_id in purchase_ids:
-                        purchase_cutoff.delay(session, 'bots.warehouse', warehouse.id, [purchase_id], priority=10)
+
+                    # We need to group POs by supplier and cutoff those off in series due to the procurement logic
+                    # that holds procurements that arrive on the same day until they have all arrived before sending it
+                    # to the warehouse. Previously, any sale order that was on 2 or more POs arriving that day would get
+                    # stuck as they would each be waiting for the other PO
+                    suppliers = defaultdict(list)
+
+                    for purchase in purchase_obj.browse(cr, uid, purchase_ids, context=context):
+                        suppliers[purchase.partner_id.id].append(purchase.id)
+
+                    for po_group in suppliers.values():
+                        purchase_cutoff.delay(session, 'bots.warehouse', warehouse.id, po_group, priority=10)
         return True
