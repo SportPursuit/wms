@@ -128,7 +128,7 @@ class StockAdapter(BotsCRUDAdapter):
             raise Exception('No bots_file entry found for file %s' % filename)
 
     def _preprocess_rows(self, csv_file):
-        """ Do some pre-processing on the csv rows to make sure everything is as we expect. 
+        """ Do some pre-processing on the csv rows to make sure everything is as we expect.
             Will raise a JobError if anything is not correct.
         """
         rows = [row for row in csv.DictReader(csv_file)]
@@ -285,7 +285,8 @@ class StockAdapter(BotsCRUDAdapter):
             #  Supplier feed quantity should be 0 as the supplier ID in
             #  the stock feed does not match the preferred supplier on the product
             if product.id in product_details.products:
-                if product.seller_id.id != supplier.id:
+                product_main_supplier_id = self._get_main_product_supplier_id(product)
+                if product_main_supplier_id != supplier.id:
                     product_details.products[product.id] = 0
             # Clear supplier's products that are not listed in the feed, only if the flag is checked
             elif supplier.flag_skus_out_of_stock:
@@ -355,6 +356,22 @@ class StockAdapter(BotsCRUDAdapter):
         inventory_obj.action_done(self.session.cr, SUPERUSER_ID, [inventory_id], self.session.context)
 
         return inventory_id
+
+    def _get_main_product_supplier_id(self, product):
+        """Modified method from addons/product/product.py.
+        Reason: it returns incorrect supplier.
+        Here we sort by sequence id
+        @:return supplier id
+        """
+        sellers = []
+        for seller_info in product.seller_ids or []:
+            if seller_info and isinstance(seller_info.sequence, (int, long)):
+                sellers.append((seller_info.sequence, seller_info))
+
+        sellers = sorted(sellers, key=lambda x: x[0])
+
+        main_supplier = sellers and sellers[0][1]
+        return main_supplier and main_supplier.name.id
 
 
 @job
