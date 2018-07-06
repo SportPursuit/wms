@@ -19,6 +19,7 @@
 ##############################################################################
 
 import json
+import logging
 from datetime import datetime
 
 from psycopg2 import IntegrityError
@@ -29,6 +30,9 @@ from openerp.addons.connector.exception import JobError, NoExternalId, MappingEr
 from openerp.addons.connector_bots.backend import bots
 from openerp.addons.connector_bots.connector import get_environment
 from openerp.addons.connector_bots.stock import (StockPickingOutAdapter, StockPickingInAdapter, BotsPickingExport)
+
+
+logger = logging.getLogger(__name__)
 
 
 @job
@@ -106,6 +110,16 @@ class PrismPickingOutAdapter(StockPickingOutAdapter):
 
         order_lines = []
         for move in picking.move_lines:
+
+            try:
+                po = move.sale_line_id.procurement_id.purchase_id
+
+                if po and po.sp_dropship:
+                    logger.warning('Skipping dropship item %s', move.product_id.default_code)
+                    continue
+            except Exception:
+                logger.exception('Error occurred trying to skip dropship items')
+
             if move.state not in ('waiting', 'confirmed', 'assigned',):
                 raise MappingError(_('Unable to export cross-dock details for a move which is in state %s.') % (move.state,))
 
