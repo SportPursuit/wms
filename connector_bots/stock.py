@@ -579,16 +579,32 @@ class BotsStockPickingOut(orm.Model):
 
     def reexport_order(self, cr, uid, ids, context=None):
         session = ConnectorSession(cr, uid, context=context)
-        for id in ids:
-            export_picking.delay(session, self._name, id, priority=EXPORT_PICKING_PRIORITY)
+
+        for picking in self.browse(cr, uid, ids, context=context):
+            if picking.sp_dropship:
+                raise orm.except_orm(
+                    _('UserError'),
+                    _('Dropship orders cannot be reexported')
+                )
+
+            export_picking.delay(session, self._name, picking.id, priority=EXPORT_PICKING_PRIORITY)
+
         return True
 
     def reexport_cancel(self, cr, uid, ids, context=None):
         session = ConnectorSession(cr, uid, context=context)
-        for id in ids:
-            picking = self.browse(cr, uid, id, context=context)
+
+        for picking in self.browse(cr, uid, ids, context=context):
+
+            if picking.sp_dropship:
+                raise orm.except_orm(
+                    _('UserError'),
+                    _('Dropship orders cannot be reexported')
+                )
+
             if picking.backend_id.feat_picking_out_cancel:
-                export_picking_cancel.delay(session, self._name, id)
+                export_picking_cancel.delay(session, self._name, picking.id)
+
         return True
 
 class BotsStockPickingIn(orm.Model):
@@ -1159,11 +1175,22 @@ def delay_export_picking_out(session, model_name, record_id, vals):
     delay = session.pool.get('ir.config_parameter').get_param(session.cr, session.uid, 'connector.bots.picking_out_delay', default=900)
     if type(delay) in (str, unicode):
         delay = delay.isdigit() and int(delay) or 900
+
+    # Dropship orders do not export data to the warehouse but we need the bots record to have a bots id so it will
+    # show as exported.
+    # Setting the bots id here instead of modifying the export_picking job so the system does less work
+    picking = session.pool.get(model_name).browse(session.cr, session.uid, record_id)
+    if picking.openerp_id.sp_dropship:
+        picking.write({'bots_id': 'DROPSHIP'})
+        return
+
     export_picking.delay(session, model_name, record_id, eta=delay, priority=EXPORT_PICKING_PRIORITY)
+
 
 @on_record_create(model_names='bots.stock.picking.in')
 def delay_export_picking_in(session, model_name, record_id, vals):
     export_picking.delay(session, model_name, record_id, priority=EXPORT_PICKING_PRIORITY)
+
 
 @job
 def export_picking(session, model_name, record_id):
