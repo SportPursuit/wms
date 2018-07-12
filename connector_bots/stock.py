@@ -46,6 +46,8 @@ import openerp.addons.decimal_precision as dp
 
 EXPORT_PICKING_PRIORITY = 3
 
+DROPSHIP_SEPARATOR = 'D'
+
 
 def get_bots_picking_ids(cr, uid, ids, ids_skipped, table, not_in_move_states, bots_id_condition, context={}):
     cr.execute("SELECT DISTINCT(bsp.id) FROM "+ table +" AS bsp " \
@@ -1178,11 +1180,19 @@ def delay_export_picking_out(session, model_name, record_id, vals):
 
     # Dropship orders do not export data to the warehouse but we need the bots record to have a bots id so it will
     # show as exported.
-    # Setting the bots id here instead of modifying the export_picking job so the system does less work
+    # Setting the bots id here instead of modifying the export_picking job so the system does less work and also
+    # because the inheritance for the adapters is too much work to modify just for this
     picking = session.pool.get(model_name).browse(session.cr, session.uid, record_id)
     if picking.openerp_id.sp_dropship:
-        picking.write({'bots_id': 'DROPSHIP'})
-        return
+
+        for count in range(0, 20):
+            bots_id = '%s%s%s' % (picking.openerp_id.sale_id.name, DROPSHIP_SEPARATOR, count)
+
+            if not session.pool.get('bots.stock.picking.out').search(session.cr, session.uid, [('bots_id', '=', bots_id)]):
+                picking.write({'bots_id': bots_id})
+                return
+        else:
+            raise Exception('Unable to create a unique bots id')
 
     export_picking.delay(session, model_name, record_id, eta=delay, priority=EXPORT_PICKING_PRIORITY)
 
