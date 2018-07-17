@@ -47,6 +47,7 @@ import openerp.addons.decimal_precision as dp
 EXPORT_PICKING_PRIORITY = 3
 
 DROPSHIP_SEPARATOR = 'D'
+DROPSHIP_BACKEND = 'Dropship Shipments'
 
 
 def get_bots_picking_ids(cr, uid, ids, ids_skipped, table, not_in_move_states, bots_id_condition, context={}):
@@ -1090,6 +1091,7 @@ class StockPickingInAdapter(StockPickingAdapter):
 def picking_available(session, model_name, record_id, picking_type, location_type):
     warehouse_obj = session.pool.get('stock.warehouse')
     bots_warehouse_obj = session.pool.get('bots.warehouse')
+    bots_backend_obj = session.pool.get('bots.backend')
     picking = session.browse(model_name, record_id)
     # Check to see if the picking should be exported to the WMS
     # If so create binding, else return
@@ -1116,10 +1118,13 @@ def picking_available(session, model_name, record_id, picking_type, location_typ
         if warehouse_ids:
             break
 
+    bots_dropship_backend_id = bots_backend_obj.search(session.cr, session.uid, [('name', '=', DROPSHIP_BACKEND)])[0]
+    bots_dropship_backend_id = bots_backend_obj.browse(session.cr, session.uid, bots_dropship_backend_id)
     bots_warehouse_ids = bots_warehouse_obj.search(session.cr, session.uid, [('warehouse_id', 'in', warehouse_ids)])
     bots_warehouse = bots_warehouse_obj.browse(session.cr, session.uid, bots_warehouse_ids)
     for warehouse in bots_warehouse:
-        backend_id = warehouse.backend_id
+        backend_id = bots_dropship_backend_id if picking.sp_dropship else warehouse.backend_id
+
         if (picking_type == 'bots.stock.picking.out' and backend_id.feat_picking_out) or \
             (picking_type == 'bots.stock.picking.in' and backend_id.feat_picking_in):
             session.create(picking_type,
