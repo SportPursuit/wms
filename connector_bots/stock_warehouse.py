@@ -398,6 +398,42 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
         return True
 
+    def get_main_picking(self, main_picking, ctx):
+        """ Determines the correct picking to use for dropship orders in the case where a picking has split.
+
+            If a picking is split for dropship orders it will cause a problem because the bots id that the supplier
+            has will be different to the bots id on the new backorder delivery order and we can't send them the new
+            bots id like we can do for the warehouse crossdock procedure.
+
+            The correct picking in these cases is determined by following the pickings from the main picking using the
+            backorder_id link until we get to the final one
+        """
+
+        _cr = self.session.cr
+        picking_obj = self.session.pool.get('stock.picking')
+        bots_picking_out_obj = self.session.pool.get('bots.stock.picking.out')
+
+        search_id = main_picking.openerp_id.id
+        backorder_id = None
+
+        while True:
+            search_id = picking_obj.search(_cr, self.session.uid, [('backorder_id', '=', search_id)])
+
+            if not search_id:
+                break
+            else:
+                backorder_id = search_id
+
+        if backorder_id:
+            backorder_id = picking_obj.browse(_cr, self.session.uid, backorder_id[0])
+
+            bots_backorder_id = bots_picking_out_obj.search(
+                _cr, self.session.uid, [('openerp_id', '=', backorder_id.id)]
+            )[0]
+            return bots_picking_out_obj.browse(_cr, self.session.uid, bots_backorder_id, context=ctx)
+
+        return main_picking
+
     def get_picking_conf(self, picking_types, new_cr=True):
 
         exceptions = []
@@ -465,6 +501,12 @@ class WarehouseAdapter(BotsCRUDAdapter):
                 if not main_picking_id:
                     raise NoExternalId("Picking %s could not be found in OpenERP" % (picking['id'],))
                 main_picking = bots_picking_obj.browse(_cr, self.session.uid, main_picking_id, context=ctx)
+                openerp_id = main_picking.openerp_id
+
+                # If a dropship picking has been split then the main picking is the original picking, not the backorder
+                # So we need to determine the correct picking to use
+                if picking['type'] == 'out' and openerp_id.sp_dropship and len(openerp_id.sale_id.picking_ids) > 1:
+                    main_picking = self.get_main_picking(main_picking, ctx)
 
                 if picking['type'] == 'in':
                     open_shipments = filter(
@@ -490,7 +532,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                     product_id = product_external_dict.get(line['product'], False)
                     if not product_id:
                         raise NoExternalId("Product %s could not be found in OpenERP" % (line['product'],))
-                    qty = int('qty_real' in line and line['qty_real'] or line['uom_qty'])
+                    qty = int(float('qty_real' in line and line['qty_real'] or line['uom_qty']))
                     ptype = line.get('status') or 'DONE'
 
                     ignore_states = ('cancel', 'draft', 'done', 'confirmed')
