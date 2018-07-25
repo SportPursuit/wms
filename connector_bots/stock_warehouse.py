@@ -660,9 +660,21 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
                 delivery_order = picking_obj.browse(_cr, self.session.uid, update_id, context=ctx)
 
-                # If this was only a partial delivery then we want to use the backorder id of the picking as that is the delivery
-                # order that was actually delivered.
-                delivered_picking = delivery_order.backorder_id or delivery_order
+                # Because of the weird way odoo does backorder delivery orders, we need this check to make sure
+                # that the tracking number gets added to the last delivery order ( which is the original ) so that
+                # magento gets correctly updated with everything shipped
+                last_shipment = all([
+                    delivery_order.backorder_id is not False,
+                    delivery_order.state == 'done',
+                    len(delivery_order.tracking_references) == 0
+                ])
+
+                if last_shipment:
+                    delivered_picking = delivery_order
+                else:
+                    # If this was only a partial delivery then we want to use the backorder id of the picking as that is the delivery
+                    # order that was actually delivered.
+                    delivered_picking = delivery_order.backorder_id or delivery_order
 
                 tracking_saved = self._save_tracking(
                     _cr, self.session.uid, picking, delivered_picking, context=ctx
