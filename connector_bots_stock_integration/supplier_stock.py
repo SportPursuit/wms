@@ -136,6 +136,10 @@ class StockAdapter(BotsCRUDAdapter):
         if not rows:
             raise Exception('File appears to be empty')
 
+        # Some suppliers are unable to provide us with csvs that have uppercase column names, which we depend on later
+        # on. To get around that, we're going to accept all variations and just force them to uppercase for processing
+        rows = [{key.upper(): value for key, value in row.iteritems()} for row in rows]
+
         product_details = self._get_product_details(rows)
         supplier, all_supplier_products, supplier_error_message = self._check_supplier_details(rows, product_details)
 
