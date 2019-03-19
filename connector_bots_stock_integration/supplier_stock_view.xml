@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<openerp>
+    <data>
+
+        <record id="view_partner_form_supplier_stock_integration" model="ir.ui.view">
+            <field name="name">view.partner.form.supplier.stock.integration</field>
+            <field name="model">res.partner</field>
+            <field name="priority">38</field>
+            <field name="inherit_id" ref="base.view_partner_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//page[@string='Sales &amp; Purchases']//field[@name='user_id']" position="after">
+                    <field name="stock_feed_enabled" attrs="{'invisible': [('supplier', '=', False)]}"/>
+                    <field name="stock_feed_threshold" attrs="{'invisible': [('supplier', '=', False), ('stock_feed_enabled', '=', True)]}"/>
+                    <field name="flag_skus_out_of_stock" attrs="{'invisible': [('supplier', '=', False), ('stock_feed_enabled', '=', True)]}"/>
+                </xpath>
+            </field>
+        </record>
+
+    </data>
+</openerp>
+

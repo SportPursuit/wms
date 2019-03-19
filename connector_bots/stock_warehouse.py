@@ -25,8 +25,9 @@ from openerp.tools.misc import DEFAULT_SERVER_DATETIME_FORMAT
 
 from openerp.addons.connector.session import ConnectorSession
 from openerp.addons.connector.queue.job import job
-from openerp.addons.connector.exception import JobError, NoExternalId, RetryableJobError
+from openerp.addons.connector.exception import JobError, NoExternalId
 from openerp.addons.connector.unit.synchronizer import ImportSynchronizer
+from openerp.addons.magentoerpconnect.stock_tracking import export_tracking_number
 
 from .unit.binder import BotsModelBinder
 from .unit.backend_adapter import BotsCRUDAdapter, file_to_process
@@ -40,6 +41,10 @@ from datetime import datetime
 from psycopg2 import OperationalError
 
 file_lock_msg = 'could not obtain lock on row in relation "bots_file"'
+
+NOT_TRACKED = 'NOT_TRACKED'
+BLANK_LABEL = 'BL'
+
 
 class BotsWarehouse(orm.Model):
     _name = 'bots.warehouse'
@@ -153,14 +158,30 @@ class WarehouseAdapter(BotsCRUDAdapter):
         stock_picking = picking_obj.browse(cr, uid, bots_stock_picking.openerp_id.id, context=context)
         # If there are any cancellations we need to reset them back to confirmed so they are re-procured
         if prod_cancel:
-            # Duplicate the entire picking including moves lines and procurements
-            new_picking_id = picking_obj.copy(cr, uid, stock_picking.id, {'move_lines': []}, context=context)
-            new_picking = picking_obj.browse(cr, uid, new_picking_id, context=context)
-            moves = False
 
+            confirm_moves = False
+
+            if stock_picking.sale_id:
+                search_domain = [('sale_id','=',stock_picking.sale_id.id), ('state','=','confirmed')]
+                pick_ids = picking_obj.search(cr, uid, search_domain, context=context)
+                new_picking_id = pick_ids and pick_ids[0] or False
+
+            if new_picking_id:
+                # The picking's already confirmed, so we'll need to explicitly confirm the move.
+                confirm_moves = True
+            else:
+                # Duplicate the entire picking including moves lines and procurements
+                new_picking_id = picking_obj.copy(cr, uid, stock_picking.id, {'move_lines': []}, context=context)
+
+            new_picking = picking_obj.browse(cr, uid, new_picking_id, context=context)
+            moves = []
+
+            events_orig = stock_picking.wms_disable_events
+            if not events_orig:
+                stock_picking.write({'wms_disable_events': True})
             # For the original picking remove lines which were cancelled
             for move in stock_picking.move_lines:
-                if move.state == 'cancel': # If we were cancelled in OpenERP already then stay cancelled
+                if move.state == 'cancel' and move.product_id.id in prod_cancel: # If we were cancelled in OpenERP already then stay cancelled
                     prod_cancel[move.product_id.id] = prod_cancel[move.product_id.id] - move.product_qty
                     continue
                 elif move.state == 'done': # This move is already completed so cannot be cancelled
@@ -169,7 +190,8 @@ class WarehouseAdapter(BotsCRUDAdapter):
                     prod_cancel[move.product_id.id] = prod_cancel[move.product_id.id] - move.product_qty
                     procurement_id = procurement_obj.search(cr, uid, [('move_id', '=', move.id)], context=context)
                     new_move = stock_move_obj.copy(cr, uid, move.id, {'picking_id': new_picking_id}, context=context)
-                    moves = True
+                    moves.append(new_move)
+                    new_procurement_id = False
                     if procurement_id:
                         procurement = procurement_obj.browse(cr, uid, procurement_id[0], context=context)
                         cut_off = procurement.purchase_id and getattr(procurement.purchase_id, 'bots_cut_off', False) and procurement.purchase_id.bots_cut_off
@@ -188,6 +210,16 @@ class WarehouseAdapter(BotsCRUDAdapter):
                             sale_line_obj.write(cr, uid, sol_ids, {'procurement_id': new_procurement_id}, context=context)
 
                     move.action_cancel()
+                    cr.execute('SAVEPOINT procurement')
+                    try: # Attempt to remove old procurement and allocate new one if there is space.
+                        if new_procurement_id and procurement.purchase_id: # Add the new procurement back into the same PO if it came from one
+                            procurement_obj.write(cr, uid, [new_procurement_id], {'purchase_id': procurement.purchase_id.id}, context=context)
+                            wf_service.trg_validate(uid, 'procurement.order', new_procurement_id, 'button_check', cr)
+                    except osv.except_osv, e: # No space, so we just cancel the old procurement and continue
+                        cr.execute('ROLLBACK TO SAVEPOINT procurement')
+                    finally:
+                        cr.execute('RELEASE SAVEPOINT procurement')
+
                     if procurement_id and cut_off:
                         procurement.purchase_id.write({'bots_cut_off': True})
 
@@ -200,7 +232,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                     procurement_obj.write(cr, uid, procurement_id, {'product_qty': reduce_qty, 'product_uos_qty': reduce_qty}, context=context)
 
                     new_move = stock_move_obj.copy(cr, uid, move.id, {'picking_id': new_picking_id, 'product_qty': new_qty, 'product_uos_qty': new_qty}, context=context)
-                    moves = True
+                    moves.append(new_move)
                     if procurement_id:
                         defaults = {'move_id': new_move, 'purchase_id': False, 'product_qty': new_qty, 'product_uos_qty': new_qty}
                         if move.sale_line_id:
@@ -214,13 +246,18 @@ class WarehouseAdapter(BotsCRUDAdapter):
                 else:
                     pass
 
-            if moves:
+            if not events_orig:
+                stock_picking.write({'wms_disable_events': events_orig})
+
+            if moves and confirm_moves:
+                stock_move_obj.action_confirm(cr, uid, moves, context=context)
+            if moves: # Run this anyway if we need to confirm the picking or not, since it is a workflow there is no harm in emitting the signal
                 add_checkpoint(self.session, 'stock.picking', new_picking_id, self.backend_record.id)
                 wf_service.trg_validate(uid, 'stock.picking', new_picking_id, 'button_confirm', cr)
                 if stock_picking.type == 'out' and stock_picking.sale_id:
                     wf_service.trg_validate(uid, 'sale.order', stock_picking.sale_id.id, 'ship_corrected', cr)
                 wf_service.trg_write(uid, 'stock.picking', stock_picking.id, cr)
-            else: # If no moves were backordered then unlink the new picking
+            elif not confirm_moves: # If no moves were backordered and we created a new picking, then unlink it
                 picking_obj.unlink(cr, uid, [new_picking_id], context=context)
 
             return new_picking_id
@@ -304,215 +341,111 @@ class WarehouseAdapter(BotsCRUDAdapter):
         self._handle_confirmations(cr, uid, picking_new, prod_confirm, context=None)
         return True
 
-    def _get_tracking(self, cr, uid, picking, contect=None):
-        carrier_obj = self.session.pool.get('delivery.carrier')
+    def _save_tracking(self, cr, uid, picking_json, picking, context=None):
+        carrier_obj = self.session.pool.get('delivery.warehouse.carrier')
+        picking_obj = self.session.pool.get('stock.picking')
+        sale_obj = self.session.pool.get('sale.order')
+        carrier_tracking_obj = self.session.pool.get('stock.picking.carrier.tracking')
 
-        tracking_number = False
-        carrier_id = False
-        tracking_data = {}
+        tracking_number = picking_json.get('tracking_number')
+        carrier = picking_json.get('carrier')
 
-        if picking.get('tracking_number'):
-            tracking_number = picking.get('tracking_number')
-        else:
-            tracking_numbers = {}
-            for tracking in picking.get('references', []):
-                # Get the first sane tracking reference
-                tracking_code = tracking.get('id') or tracking.get('desc')
-                tracking_ref = tracking.get('desc') or tracking.get('id')
-                if tracking.get('type') == 'consignment' and tracking_ref and tracking_ref not in ('N/A',):
-                    tracking_numbers['consignment'] = tracking_ref
-                elif ((tracking.get('type') == 'purchase_ref' and picking['type'] == 'in') or \
-                        (tracking.get('type') == 'shipping_ref' and picking['type'] == 'out')) and \
-                        tracking_code and tracking_code not in ('N/A',):
-                    tracking_numbers['pick_ref'] = tracking_code
-                elif tracking_code and tracking_code not in ('N/A',):
-                    tracking_numbers['other_ref'] = tracking_code
-            tracking_number = tracking_numbers.get('consignment') or tracking_numbers.get('pick_ref') or tracking_numbers.get('other_ref') or False
+        if not tracking_number and not carrier:
+            return
 
-        carrier = picking.get('service_carrier') or picking.get('carrier')
-        if carrier:
-            carrier_ids = carrier_obj.search(cr, uid, [('name', 'like', carrier),], context=contect)
-            if carrier_ids:
-                carrier_id = carrier_ids[0]
+        if tracking_number and not carrier:
+            if tracking_number == NOT_TRACKED:
+                carrier = BLANK_LABEL
             else:
-                tracking_number = "%s: %s" % (carrier, tracking_number or '')
+                raise Exception('Tracking reference found but no carrier code')
 
-        if tracking_number:
-            tracking_data['carrier_tracking_ref'] = tracking_number
-        if carrier_id:
-            tracking_data['carrier_id'] = carrier_id
+        if carrier and not tracking_number:
+            raise Exception('Carrier code found but no tracking reference')
 
-        return tracking_data
+        warehouse_carrier_id = None
+
+        if carrier:
+            carrier_ids = carrier_obj.search(cr, uid, [('carrier_code', 'like', carrier)], context=context)
+            if carrier_ids:
+                warehouse_carrier_id = carrier_ids[0]
+
+        if not warehouse_carrier_id:
+            raise JobError('Carrier %s is not recognised by Odoo' % carrier)
+
+        picking_obj.write(cr, uid, picking.id, {'carrier_tracking_ref': tracking_number}, context=context)
+
+        # Save each tracking number on it's own line
+        tracking_number = tracking_number.split(',')
+
+        for number in tracking_number:
+
+            tracking_id = carrier_tracking_obj.create(
+                cr, uid, {'picking_id': picking.id, 'tracking_reference': number, 'carrier_id': warehouse_carrier_id}
+            )
+
+            tracking = carrier_tracking_obj.browse(cr, uid, tracking_id)
+            tracking_url = tracking.tracking_link
+
+            picking_obj.message_post(
+                cr, uid, picking.id, body='Tracking Reference: ' + tracking_url, context=context
+            )
+
+            sale_obj.message_post(
+                cr, uid, picking.sale_id.id,
+                body='Delivery Order: %s <br><br>Tracking Reference: %s' % (picking.name, tracking_url),
+                context=context
+            )
+
+        return True
+
+    def get_main_picking(self, main_picking, ctx):
+        """ Determines the correct picking to use for dropship orders in the case where a picking has split.
+
+            If a picking is split for dropship orders it will cause a problem because the bots id that the supplier
+            has will be different to the bots id on the new backorder delivery order and we can't send them the new
+            bots id like we can do for the warehouse crossdock procedure.
+
+            The correct picking in these cases is determined by following the pickings from the main picking using the
+            backorder_id link until we get to the final one
+        """
+
+        _cr = self.session.cr
+        picking_obj = self.session.pool.get('stock.picking')
+        bots_picking_out_obj = self.session.pool.get('bots.stock.picking.out')
+
+        search_id = main_picking.openerp_id.id
+        backorder_id = None
+
+        while True:
+            search_id = picking_obj.search(_cr, self.session.uid, [('backorder_id', '=', search_id)])
+
+            if not search_id:
+                break
+            else:
+                backorder_id = search_id
+
+        if backorder_id:
+            backorder_id = picking_obj.browse(_cr, self.session.uid, backorder_id[0])
+
+            bots_backorder_id = bots_picking_out_obj.search(
+                _cr, self.session.uid, [('openerp_id', '=', backorder_id.id)]
+            )[0]
+            return bots_picking_out_obj.browse(_cr, self.session.uid, bots_backorder_id, context=ctx)
+
+        return main_picking
 
     def get_picking_conf(self, picking_types, new_cr=True):
-        product_binder = self.get_binder_for_model('bots.product')
-        picking_in_binder = self.get_binder_for_model('bots.stock.picking.in')
-        picking_out_binder = self.get_binder_for_model('bots.stock.picking.out')
-        bots_picking_in_obj = self.session.pool.get('bots.stock.picking.in')
-        bots_picking_out_obj = self.session.pool.get('bots.stock.picking.out')
-        move_obj = self.session.pool.get('stock.move')
-        picking_obj = self.session.pool.get('stock.picking')
-        procurement_obj = self.session.pool.get('procurement.order')
-        bots_warehouse_obj = self.session.pool.get('bots.warehouse')
-        wf_service = netsvc.LocalService("workflow")
+
         exceptions = []
-        retry = False
 
         FILENAME = r'^picking_conf_.*\.json$'
         file_ids = self._search(FILENAME)
         res = []
-        ctx = self.session.context.copy()
-        ctx['wms_bots'] = True
 
         for file_id in file_ids:
             try:
-                with file_to_process(self.session, file_id[0], new_cr=new_cr, serialized_cr=False) as f:
-                    json_data = json.load(f)
-                    _cr = self.session.cr
-
-                    json_data = json_data if type(json_data) in (list, tuple) else [json_data,]
-                    for pickings in json_data:
-                        for picking in pickings['orderconf']['shipment']:
-                            if picking['type'] not in picking_types:
-                                # We are not a picking we want to import, discarded
-                                continue
-
-                            if picking['type'] == 'in':
-                                picking_binder = picking_in_binder
-                                bots_picking_obj = bots_picking_in_obj
-                            elif picking['type'] == 'out':
-                                picking_binder = picking_out_binder
-                                bots_picking_obj = bots_picking_out_obj
-                            else:
-                                raise NotImplementedError("Unable to import picking of type %s" % (picking['type'],))
-
-                            # Map the picking by the Bots ID/Order Number - This is used if mapping fails with the move ids
-                            main_picking_id = picking_binder.to_openerp(picking['id'])
-                            if not main_picking_id:
-                                raise NoExternalId("Picking %s could not be found in OpenERP" % (picking['id'],))
-                            main_picking = bots_picking_obj.browse(_cr, self.session.uid, main_picking_id, context=ctx)
-                            picking_ids = [main_picking.openerp_id.id]
-                            ctx.update({'company_id' : main_picking.openerp_id.company_id.id})
-
-                            move_dict = {}
-                            moves_extra = {}
-                            
-                            product_external_ids = [line['product'] for line in picking['line']]
-                            product_external_dict = product_binder.to_openerp_multi(product_external_ids)
-                            for line in picking['line']:
-                                # Handle products and qtys
-                                product_id = product_external_dict.get(line['product'], False)
-                                if not product_id:
-                                    raise NoExternalId("Product %s could not be found in OpenERP" % (line['product'],))
-                                qty = int('qty_real' in line and line['qty_real'] or line['uom_qty'])
-                                ptype = line.get('status') or 'DONE'
-
-                                ignore_states = ('cancel', 'draft', 'done')
-                                if ptype == 'CANCELLED':
-                                    ignore_states = ('draft', 'done')
-                                elif ptype == 'DONE':
-                                    ignore_states = ('cancel', 'draft')
-
-                                # Attempt to find moves for this line
-                                move_ids = [int(x) for x in line.get('move_ids', '').split(',') if x]
-                                move_ids = move_obj.search(_cr, self.session.uid, [('id', 'in', move_ids),
-                                                                                ('state', 'not in', ignore_states),
-                                                                                ], context=ctx)
-
-                                # Match moves from the main picking as a fallback
-                                move_ids.extend(move_obj.search(_cr, self.session.uid,
-                                                                [('picking_id', '=', main_picking.openerp_id.id),
-                                                                ('product_id', '=', product_id),
-                                                                ('state', 'not in', ignore_states),
-                                                                ], context=ctx))
-
-                                # Distribute qty over the moves, sperating by type - Use SQL to avoid slow name_get function
-                                if move_ids:
-                                    _cr.execute("""select id "id", picking_id "picking_id", product_qty "product_qty", product_id "product_id"
-                                                from stock_move where id in %s """, [tuple(move_ids),])
-                                    for move in _cr.dictfetchall():
-                                        key = (move['id'], move['picking_id'], move['product_id'])
-                                        if qty and sum(move_dict.get(key, {}).values()) < move['product_qty']:
-                                            qty_to_add = min(move['product_qty'], qty)
-                                            qty -= qty_to_add
-                                            move_dict.setdefault(key, {})[ptype] = move_dict.setdefault(key, {}).get(ptype, 0) + qty_to_add
-                                        if qty == 0:
-                                            break
-
-                                # No moves found or unallocated qty, handle these separatly if possible
-                                if qty:
-                                    moves_extra.setdefault(ptype, []).append((product_id, qty))
-
-                            # Group moves and qtys by pickings and type
-                            type_picking_move_dict = {} # Dicts of move_id and qty
-                            type_picking_prod_dict = {} # Dicts of product_id and qty
-                            for (move_id, picking_id, product_id), type_qtys in move_dict.iteritems():
-                                if not picking_id:
-                                    raise NotImplementedError("Stock confirmation must be for a picking. Move ID %d with no picking are not supported" % (move_id,))
-                                if type_qtys and picking_id not in picking_ids:
-                                    picking_ids.append(picking_id)
-                                for ptype, qty in type_qtys.iteritems():
-                                    key = (picking_id, ptype)
-                                    type_picking_move_dict.setdefault(key, {})[move_id] = type_picking_move_dict.get(key, {}).get(move_id, 0) + qty
-                                    type_picking_prod_dict.setdefault(key, {})[product_id] = type_picking_prod_dict.get(key, {}).get(product_id, 0) + qty
-                            del move_dict
-
-                            # Handle tracking information
-                            tracking_data = self._get_tracking(_cr, self.session.uid, picking, contect=ctx)
-                            if tracking_data:
-                                picking_obj.write(_cr, self.session.uid, picking_ids, tracking_data, context=ctx)
-
-                            # If we are not confirming anything we should just update the tracking info and continue
-                            if picking['confirmed'] not in ('Y', 'True', '1', True, 1):
-                                continue
-
-                            # Handle opperations
-                            backorders = []
-                            for (picking_id, ptype), moves_part in type_picking_move_dict.iteritems():
-
-                                # Get the binding ID for this picking
-                                bots_picking_id = bots_picking_obj.search(_cr, self.session.uid, [('openerp_id', '=', picking_id), ('backend_id', '=', self.backend_record.id)], context=ctx)
-                                if bots_picking_id:
-                                    bots_picking_id = bots_picking_id[0]
-                                if not bots_picking_id:
-                                    bots_picking_id = main_picking_id # Fallback if not found
-
-                                bots_picking = bots_picking_obj.browse(_cr, self.session.uid, bots_picking_id, context=ctx)
-
-                                if ptype == 'DONE':
-                                    split, old_backorder_id = self._handle_confirmations(_cr, self.session.uid, bots_picking.openerp_id, moves_part, context=ctx)
-                                    backorders.append((bots_picking, picking['id'], split, old_backorder_id))
-                                elif ptype == 'CANCELLED':
-                                    self._handle_cancellations(_cr, self.session.uid, bots_picking, type_picking_prod_dict.get((picking_id, ptype), {}), context=ctx)
-                                elif ptype == 'RETURNED': # TODO: Handle returns
-                                    raise NotImplementedError('Handling returned lines is not currently supported')
-                                elif ptype == 'REFUNDED': # TODO: Handle refunds
-                                    raise NotImplementedError('Handling refunded lines is not currently supported')
-                                else:
-                                    raise NotImplementedError("Unable to process picking confirmation of type %s" % (ptype,))
-
-                            for picking_id in picking_ids:
-                                bots_picking_id = bots_picking_obj.search(_cr, self.session.uid, [('openerp_id', '=', picking_id), ('backend_id', '=', self.backend_record.id)], context=ctx)
-                                if bots_picking_id:
-                                    bots_picking_id = bots_picking_id[0]
-                                if not bots_picking_id:
-                                    bots_picking_id = main_picking_id # Fallback if not found
-
-                                bots_picking = bots_picking_obj.browse(_cr, self.session.uid, bots_picking_id, context=ctx)
-
-                                if moves_extra.get('DONE') and picking['type'] == 'in':
-                                    # Any additional done stock should be added to an incoming PO
-                                    self._handle_additional_done_incoming(_cr, self.session.uid, picking_id, moves_extra.get('DONE'), context=ctx)
-                                    del moves_extra['DONE']
-                                    if (picking_id, 'DONE') not in type_picking_move_dict: # If this is the only additional stock then create a backorder for the origional
-                                        backorders.append((bots_picking, picking['id'], False, False))
-
-                            for bots_picking, picking_id, split, old_backorder_id in backorders:
-                                self._handle_backorder(_cr, self.session.uid, bots_picking, picking_id, split, old_backorder_id, context=ctx)
-
-                            # TODO: Handle various opperations for extra stock (Additional done incoming for PO handled above)
-                            if moves_extra:
-                                raise NotImplementedError("Unable to process unexpected incoming stock for %s: %s" % (picking['id'], moves_extra,))
+                with file_to_process(self.session, file_id[0], new_cr=new_cr) as f:
+                    self.process_data(picking_types, json.load(f))
 
             except OperationalError, e:
                 # file_lock_msg suggests that another job is already handling these files,
@@ -520,24 +453,241 @@ class WarehouseAdapter(BotsCRUDAdapter):
                 if e.message and file_lock_msg in e.message:
                     exception = "Exception %s when processing file %s: %s" % (e, file_id[1], traceback.format_exc())
                     exceptions.append(exception)
-            except RetryableJobError, e:
-                # Log error then continue processing files
-                retry = True
-                exception = "Retryable exception %s when processing file %s: %s" % (e, file_id[1], traceback.format_exc())
-                exceptions.append(exception)
             except Exception, e:
                 # Log error then continue processing files
                 exception = "Exception %s when processing file %s: %s" % (e, file_id[1], traceback.format_exc())
                 exceptions.append(exception)
+                pass
 
         # If we hit any errors, fail the job with a list of all errors now
         if exceptions:
-            if retry:
-                raise RetryableJobError('The following exceptions were encountered:\n\n%s\n\nSome are retryable, will re-schedule job.' % ('\n\n'.join(exceptions),))
-            else:
-                raise JobError('The following exceptions were encountered:\n\n%s' % ('\n\n'.join(exceptions),))
+            raise JobError('The following exceptions were encountered:\n\n%s' % ('\n\n'.join(exceptions),))
 
         return res
+
+    def process_data(self, picking_types, picking_data):
+
+        product_binder = self.get_binder_for_model('bots.product')
+        picking_in_binder = self.get_binder_for_model('bots.stock.picking.in')
+        picking_out_binder = self.get_binder_for_model('bots.stock.picking.out')
+        bots_picking_in_obj = self.session.pool.get('bots.stock.picking.in')
+        bots_picking_out_obj = self.session.pool.get('bots.stock.picking.out')
+        move_obj = self.session.pool.get('stock.move')
+        picking_obj = self.session.pool.get('stock.picking')
+
+        ctx = self.session.context.copy()
+        ctx['wms_bots'] = True
+
+        _cr = self.session.cr
+
+        picking_data = picking_data if type(picking_data) in (list, tuple) else [picking_data, ]
+        for pickings in picking_data:
+            for picking in pickings['orderconf']['shipment']:
+                if picking['type'] not in picking_types:
+                    # We are not a picking we want to import, discarded
+                    continue
+
+                if picking['type'] == 'in':
+                    picking_binder = picking_in_binder
+                    bots_picking_obj = bots_picking_in_obj
+                elif picking['type'] == 'out':
+                    picking_binder = picking_out_binder
+                    bots_picking_obj = bots_picking_out_obj
+                else:
+                    raise NotImplementedError("Unable to import picking of type %s" % (picking['type'],))
+
+                # Map the picking by the Bots ID/Order Number - This is used if mapping fails with the move ids
+                main_picking_id = picking_binder.to_openerp(picking['id'])
+                if not main_picking_id:
+                    raise NoExternalId("Picking %s could not be found in OpenERP" % (picking['id'],))
+                main_picking = bots_picking_obj.browse(_cr, self.session.uid, main_picking_id, context=ctx)
+                openerp_id = main_picking.openerp_id
+
+                # If a dropship picking has been split then the main picking is the original picking, not the backorder
+                # So we need to determine the correct picking to use
+                if picking['type'] == 'out' and openerp_id.sp_dropship and len(openerp_id.sale_id.picking_ids) > 1:
+                    main_picking = self.get_main_picking(main_picking, ctx)
+
+                if picking['type'] == 'in':
+                    open_shipments = filter(
+                        lambda x: x.state == 'assigned',
+                        main_picking.openerp_id.purchase_id.picking_ids
+                    )
+
+                    if not open_shipments:
+                        raise Exception(
+                            'PO %s is already received' % main_picking.openerp_id.purchase_id.name
+                        )
+
+                picking_ids = [main_picking.openerp_id.id]
+                ctx.update({'company_id': main_picking.openerp_id.company_id.id})
+
+                move_dict = {}
+                moves_extra = {}
+
+                product_external_ids = [line['product'] for line in picking['line']]
+                product_external_dict = product_binder.to_openerp_multi(product_external_ids)
+                for line in picking['line']:
+                    # Handle products and qtys
+                    product_id = product_external_dict.get(line['product'], False)
+                    if not product_id:
+                        raise NoExternalId("Product %s could not be found in OpenERP" % (line['product'],))
+                    qty = int(float('qty_real' in line and line['qty_real'] or line['uom_qty']))
+                    ptype = line.get('status') or 'DONE'
+
+                    ignore_states = ('cancel', 'draft', 'done', 'confirmed')
+                    if ptype == 'CANCELLED':
+                        ignore_states = ('draft', 'done')
+
+                    # Attempt to find moves for this line
+                    move_ids = [int(x) for x in line.get('move_ids', '').split(',') if x]
+                    move_ids = move_obj.search(_cr, self.session.uid, [('id', 'in', move_ids),
+                                                                       ('state', 'not in', ignore_states),
+                                                                       ], context=ctx)
+
+                    # Match moves from the main picking as a fallback
+                    move_ids.extend(move_obj.search(_cr, self.session.uid,
+                                                    [('picking_id', '=', main_picking.openerp_id.id),
+                                                     ('product_id', '=', product_id),
+                                                     ('state', 'not in', ignore_states),
+                                                     ], context=ctx))
+
+                    # Distribute qty over the moves, sperating by type - Use SQL to avoid slow name_get function
+                    if move_ids:
+                        _cr.execute("""select id "id", picking_id "picking_id", product_qty "product_qty", product_id "product_id"
+                                    from stock_move where id in %s """, [tuple(move_ids), ])
+                        res_dict = dict([(res['id'], res) for res in
+                                         _cr.dictfetchall()])  # Convert to a dict to read them back in the correct order
+                        for move_id in move_ids:
+                            move = res_dict[move_id]
+                            key = (move['id'], move['picking_id'], move['product_id'])
+                            if qty and sum(move_dict.get(key, {}).values()) < move['product_qty']:
+                                qty_to_add = min(move['product_qty'], qty)
+                                qty -= qty_to_add
+                                move_dict.setdefault(key, {})[ptype] = move_dict.setdefault(key, {}).get(ptype,
+                                                                                                         0) + qty_to_add
+                            if qty == 0:
+                                break
+
+                    # No moves found or unallocated qty, handle these separatly if possible
+                    if qty:
+                        moves_extra.setdefault(ptype, []).append((product_id, qty))
+
+                # Group moves and qtys by pickings and type
+                type_picking_move_dict = {}  # Dicts of move_id and qty
+                type_picking_prod_dict = {}  # Dicts of product_id and qty
+                for (move_id, picking_id, product_id), type_qtys in move_dict.iteritems():
+                    if not picking_id:
+                        raise NotImplementedError(
+                            "Stock confirmation must be for a picking. Move ID %d with no picking are not supported" % (
+                            move_id,))
+                    if type_qtys and picking_id not in picking_ids:
+                        picking_ids.append(picking_id)
+                    for ptype, qty in type_qtys.iteritems():
+                        key = (picking_id, ptype)
+                        type_picking_move_dict.setdefault(key, {})[move_id] = type_picking_move_dict.get(key,
+                                                                                                         {}).get(
+                            move_id, 0) + qty
+                        type_picking_prod_dict.setdefault(key, {})[product_id] = type_picking_prod_dict.get(key,
+                                                                                                            {}).get(
+                            product_id, 0) + qty
+                del move_dict
+
+                # If we are not confirming anything we should just update the tracking info and continue
+                if picking['confirmed'] not in ('Y', 'True', '1', True, 1):
+                    continue
+
+                # Handle opperations
+                backorders = []
+                for (picking_id, ptype), moves_part in type_picking_move_dict.iteritems():
+
+                    # Get the binding ID for this picking
+                    openerp_picking = picking_obj.browse(_cr, self.session.uid, picking_id, context=ctx)
+                    bots_picking_id = bots_picking_obj.search(_cr, self.session.uid,
+                                                              [('openerp_id', '=', picking_id),
+                                                               ('backend_id', '=', self.backend_record.id)],
+                                                              context=ctx)
+                    if bots_picking_id:
+                        bots_picking_id = bots_picking_id[0]
+                    if not bots_picking_id:
+                        bots_picking_id = main_picking_id  # Fallback if not found
+
+                    bots_picking = bots_picking_obj.browse(_cr, self.session.uid, bots_picking_id, context=ctx)
+
+                    if ptype == 'DONE':
+                        split, old_backorder_id = self._handle_confirmations(_cr, self.session.uid, openerp_picking,
+                                                                             moves_part, context=ctx)
+                        backorders.append((bots_picking, picking['id'], split, old_backorder_id))
+                    elif ptype == 'CANCELLED':
+                        self._handle_cancellations(_cr, self.session.uid, bots_picking,
+                                                   type_picking_prod_dict.get((picking_id, ptype), {}), context=ctx)
+                    elif ptype == 'RETURNED':  # TODO: Handle returns
+                        raise NotImplementedError('Handling returned lines is not currently supported')
+                    elif ptype == 'REFUNDED':  # TODO: Handle refunds
+                        raise NotImplementedError('Handling refunded lines is not currently supported')
+                    else:
+                        raise NotImplementedError("Unable to process picking confirmation of type %s" % (ptype,))
+
+                for picking_id in picking_ids:
+                    bots_picking_id = bots_picking_obj.search(_cr, self.session.uid,
+                                                              [('openerp_id', '=', picking_id),
+                                                               ('backend_id', '=', self.backend_record.id)],
+                                                              context=ctx)
+                    if bots_picking_id:
+                        bots_picking_id = bots_picking_id[0]
+                    if not bots_picking_id:
+                        bots_picking_id = main_picking_id  # Fallback if not found
+
+                    bots_picking = bots_picking_obj.browse(_cr, self.session.uid, bots_picking_id, context=ctx)
+
+                    if moves_extra.get('DONE') and picking['type'] == 'in':
+                        # Any additional done stock should be added to an incoming PO
+                        self._handle_additional_done_incoming(_cr, self.session.uid, picking_id,
+                                                              moves_extra.get('DONE'), context=ctx)
+                        del moves_extra['DONE']
+                        if (picking_id,
+                            'DONE') not in type_picking_move_dict:  # If this is the only additional stock then create a backorder for the origional
+                            backorders.append((bots_picking, picking['id'], False, False))
+
+                for bots_picking, picking_id, split, old_backorder_id in backorders:
+                    self._handle_backorder(_cr, self.session.uid, bots_picking, picking_id, split, old_backorder_id,
+                                           context=ctx)
+
+                # Handle tracking information
+                update_ids = [p_id for p_id in picking_ids if p_id != main_picking.openerp_id.id] or picking_ids
+                assert len(update_ids) == 1, "We should only be working with one delivery order"
+                update_id = update_ids[0]
+
+                delivery_order = picking_obj.browse(_cr, self.session.uid, update_id, context=ctx)
+
+                # Because of the weird way odoo does backorder delivery orders, we need this check to make sure
+                # that the tracking number gets added to the last delivery order ( which is the original ) so that
+                # magento gets correctly updated with everything shipped
+                last_shipment = all([
+                    delivery_order.backorder_id is not False,
+                    delivery_order.state == 'done',
+                    len(delivery_order.tracking_references) == 0
+                ])
+
+                if last_shipment:
+                    delivered_picking = delivery_order
+                else:
+                    # If this was only a partial delivery then we want to use the backorder id of the picking as that is the delivery
+                    # order that was actually delivered.
+                    delivered_picking = delivery_order.backorder_id or delivery_order
+
+                tracking_saved = self._save_tracking(
+                    _cr, self.session.uid, picking, delivered_picking, context=ctx
+                )
+                if tracking_saved:
+                    export_tracking_number.delay(
+                        self.session, 'magento.stock.picking.out', delivered_picking.magento_bind_ids[0].id
+                    )
+
+                # TODO: Handle various opperations for extra stock (Additional done incoming for PO handled above)
+                if moves_extra:
+                    raise NotImplementedError(
+                        "Unable to process unexpected stock for %s: %s" % (picking['id'], moves_extra,))
 
     def get_stock_levels(self, warehouse_id, new_cr=True):
         product_binder = self.get_binder_for_model('bots.product')

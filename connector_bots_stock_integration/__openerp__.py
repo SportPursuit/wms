@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 ##############################################################################
 #
-#    Copyright 2014 credativ Ltd
+#    Copyright 2017 credativ software (India) Pvt. Ltd.
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU Affero General Public License as
@@ -18,12 +18,23 @@
 #
 ##############################################################################
 
-import stock
-import connector
-import backend
-import bots_model
-import product
-import sale
-import stock_warehouse
-import purchase
-import delivery
+{'name': 'Supplier Stock Integration',
+ 'version': '1.0',
+ 'category': 'Connector',
+ 'author': 'credativ software (India) Pvt. Ltd.',
+ 'website': 'http://www.credativ.in',
+ 'license': 'AGPL-3',
+ 'description': """
+""",
+ 'depends': [
+     'connector_ecommerce',
+     'connector_bots',
+     'stock_supplier_levels',
+ ],
+ 'data': [
+     'product_view.xml',
+     'supplier_stock_view.xml',
+     'bots_data.xml'
+ ],
+ 'installable': True,
+ }

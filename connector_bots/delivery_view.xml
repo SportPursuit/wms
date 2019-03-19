@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<openerp>
+    <data>
+
+        <record id="view_warehouse_carriers_form" model="ir.ui.view">
+            <field name="name">delivery.warehouse.carrier.form</field>
+            <field name="model">delivery.warehouse.carrier</field>
+            <field name="arch" type="xml">
+                <form string="Delivery Carriers" version="7.0">
+                    <group name="carriers" string="Delivery Carrier">
+                        <field name="name" string="Carrier"/>
+                        <field name="carrier_code" string="Carrier Code"/>
+                        <field name="tracking_link" string="Tracking Link"/>
+                    </group>
+                </form>
+            </field>
+        </record>
+
+        <record id="view_warehouse_carriers_tree" model="ir.ui.view">
+            <field name="name">delivery.warehouse.carrier.tree</field>
+            <field name="model">delivery.warehouse.carrier</field>
+            <field name="arch" type="xml">
+                <tree string="Delivery Carriers" version="7.0">
+                    <field name="name" string="Carrier"/>
+                    <field name="carrier_code" string="Carrier Code"/>
+                    <field name="tracking_link" string="Tracking Link"/>
+                </tree>
+            </field>
+        </record>
+
+        <record id="action_warehouse_delivery_carriers" model="ir.actions.act_window">
+            <field name="name">Delivery Carriers</field>
+            <field name="res_model">delivery.warehouse.carrier</field>
+            <field name="view_type">form</field>
+            <field name="view_mode">tree,form</field>
+            <field name="view_id" ref="view_warehouse_carriers_tree"/>
+        </record>
+
+        <menuitem id="menu_warehouse_delivery_carriers"
+                  name="Delivery Carriers"
+                  parent="delivery.menu_delivery"
+                  sequence="30"
+                  action="action_warehouse_delivery_carriers"
+        />
+
+    </data>
+</openerp>

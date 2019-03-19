@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 ##############################################################################
 #
-#    Copyright 2014 credativ Ltd
+#    Copyright 2015 credativ Ltd
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU Affero General Public License as
@@ -18,12 +18,8 @@
 #
 ##############################################################################
 
-import stock
 import connector
-import backend
 import bots_model
-import product
-import sale
-import stock_warehouse
-import purchase
-import delivery
+import supplier_stock_integration
+import product_stock_integration
+import supplier_stock

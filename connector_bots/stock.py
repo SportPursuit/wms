@@ -17,6 +17,7 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 ##############################################################################
+from collections import Counter
 
 from openerp.osv import orm, fields, osv
 from openerp import netsvc, SUPERUSER_ID
@@ -41,6 +42,13 @@ import json
 from datetime import datetime
 import re
 import openerp.addons.decimal_precision as dp
+
+
+EXPORT_PICKING_PRIORITY = 3
+
+DROPSHIP_SEPARATOR = 'D'
+DROPSHIP_BACKEND = 'Dropship Shipments'
+
 
 def get_bots_picking_ids(cr, uid, ids, ids_skipped, table, not_in_move_states, bots_id_condition, context={}):
     cr.execute("SELECT DISTINCT(bsp.id) FROM "+ table +" AS bsp " \
@@ -195,6 +203,7 @@ class StockPickingOut(orm.Model):
                 help="Scheduled time for the shipment to be processed"
             ),
             'carrier_tracking_ref': fields.char('Carrier Tracking Ref', size=128),
+            'tracking_references': fields.one2many('stock.picking.carrier.tracking', 'picking_id', 'Tracking References'),
             'prio_id' : fields.many2one('order.prio', 'Priority', help='The priority code to assign to this picking. If blank, will default to \'4\'.', readonly=True, states={'draft':[('readonly',False)],'confirmed':[('readonly',False)]}),
         }
 
@@ -261,14 +270,79 @@ class StockPickingOut(orm.Model):
         res = super(StockPickingOut, self).unlink(cr, uid, ids, context=context)
         return res
 
+
+class StockPickingTracking(orm.Model):
+    _name = 'stock.picking.carrier.tracking'
+
+
+    def _get_carriers_for_references(self, cr, uid, tracking_refs):
+        carrier_obj = self.pool.get('delivery.warehouse.carrier')
+
+        carrier_ids = [tracking_ref['carrier_id'][0] for tracking_ref in tracking_refs]
+        mapping = {
+            tracking_refs['id']: carrier for carrier in carrier_obj.read(cr, uid, carrier_ids, ['name', 'tracking_link'])
+        }
+
+        return mapping
+
+    def _get_magento_tracking_link(self, cr, uid, ids, field_name, arg, context=None):
+
+        tracking_refs = self.browse(cr, uid, ids, context=context)
+
+        res = {}
+
+        for tracking_ref in tracking_refs:
+            carrier = tracking_ref.carrier_id
+
+            if carrier.tracking_link:
+                url = carrier.tracking_link.replace('[[code]]', tracking_ref.tracking_reference)
+            else:
+                url = ''
+
+            res[tracking_ref.id] = url
+
+        return res
+
+    def _get_tracking_link(self, cr, uid, ids, field_name, arg, context=None):
+
+        tracking_refs = self.browse(cr, uid, ids, context=context)
+
+        res = {}
+
+        for tracking_ref in tracking_refs:
+            carrier = tracking_ref.carrier_id
+
+            if carrier.tracking_link:
+                url = carrier.tracking_link.replace('[[code]]', tracking_ref.tracking_reference)
+                url = '<a href="%s" target="_blank">%s - %s</a>' % (url, carrier.name, tracking_ref.tracking_reference)
+            else:
+                url = "%s - %s" % (carrier.name, tracking_ref.tracking_reference)
+
+            res[tracking_ref.id] = url
+
+        return res
+
+    _columns = {
+        'picking_id': fields.many2one('stock.picking', 'Picking', select=True, required=True),
+        'carrier_id': fields.many2one('delivery.warehouse.carrier', 'Warehouse Carrier', select=True, required=True),
+        'tracking_reference': fields.char('Carrier Tracking Ref', size=128, required=True),
+        'tracking_link': fields.function(_get_tracking_link, type='str', string='Tracking Link', readonly=True),
+        'magento_tracking_link': fields.function(_get_magento_tracking_link, type='str', string='Tracking Link', readonly=True)
+    }
+
+
+StockPickingTracking()
+
+
 class StockPicking(orm.Model):
     _inherit = 'stock.picking'
 
     _columns = {
-            'bots_customs': fields.boolean('Bonded Goods', help='If this picking is subject to duties.', states={'done':[('readonly', True)], 'cancel':[('readonly',True)], 'assigned':[('readonly',True)]}),
-            'carrier_tracking_ref': fields.char('Carrier Tracking Ref', size=128),
-            'prio_id' : fields.many2one('order.prio', 'Priority', help='The priority code to assign to this picking. If blank, will default to \'4\'.', readonly=True, states={'draft':[('readonly',False)],'confirmed':[('readonly',False)]}),
-        }
+        'bots_customs': fields.boolean('Bonded Goods', help='If this picking is subject to duties.', states={'done':[('readonly', True)], 'cancel':[('readonly',True)], 'assigned':[('readonly',True)]}),
+        'carrier_tracking_ref': fields.char('Carrier Tracking Ref', size=128),
+        'prio_id' : fields.many2one('order.prio', 'Priority', help='The priority code to assign to this picking. If blank, will default to \'4\'.', readonly=True, states={'draft':[('readonly',False)],'confirmed':[('readonly',False)]}),
+        'tracking_references': fields.one2many('stock.picking.carrier.tracking', 'picking_id', 'Tracking References')
+    }
 
     def _get_default_prio(self, cr, uid, context=None):
         # On deployment, the initial data is not populated at this point.
@@ -508,16 +582,32 @@ class BotsStockPickingOut(orm.Model):
 
     def reexport_order(self, cr, uid, ids, context=None):
         session = ConnectorSession(cr, uid, context=context)
-        for id in ids:
-            export_picking.delay(session, self._name, id)
+
+        for picking in self.browse(cr, uid, ids, context=context):
+            if picking.sp_dropship:
+                raise orm.except_orm(
+                    _('UserError'),
+                    _('Dropship orders cannot be reexported')
+                )
+
+            export_picking.delay(session, self._name, picking.id, priority=EXPORT_PICKING_PRIORITY)
+
         return True
 
     def reexport_cancel(self, cr, uid, ids, context=None):
         session = ConnectorSession(cr, uid, context=context)
-        for id in ids:
-            picking = self.browse(cr, uid, id, context=context)
+
+        for picking in self.browse(cr, uid, ids, context=context):
+
+            if picking.sp_dropship:
+                raise orm.except_orm(
+                    _('UserError'),
+                    _('Dropship orders cannot be reexported')
+                )
+
             if picking.backend_id.feat_picking_out_cancel:
-                export_picking_cancel.delay(session, self._name, id)
+                export_picking_cancel.delay(session, self._name, picking.id)
+
         return True
 
 class BotsStockPickingIn(orm.Model):
@@ -561,7 +651,7 @@ class BotsStockPickingIn(orm.Model):
     def reexport_order(self, cr, uid, ids, context=None):
         session = ConnectorSession(cr, uid, context=context)
         for id in ids:
-            export_picking.delay(session, self._name, id)
+            export_picking.delay(session, self._name, id, priority=EXPORT_PICKING_PRIORITY)
         return True
 
     def reexport_cancel(self, cr, uid, ids, context=None):
@@ -587,6 +677,29 @@ class BotsStockPickingInBinder(BotsModelBinder):
 class StockPickingAdapter(BotsCRUDAdapter):
     _picking_type = None
 
+    def _get_moves_to_split(self, pick, allowed_states):
+        """ Determine which moves should not be exported to
+            BOTS, and should instead be split out into a
+            new picking.
+        """
+        product_binder = self.get_binder_for_model('bots.product')
+        picking_complete = True
+        moves_to_split = []
+        for move in pick.move_lines:
+            if move.state == 'cancel':
+                moves_to_split.append(move.id)
+                continue
+            elif move.state not in allowed_states:
+                picking_complete = False
+                moves_to_split.append(move.id)
+                continue
+            product_bots_id = move.product_id and product_binder.to_backend(move.product_id.id)
+            if not product_bots_id:
+                picking_complete = False
+                moves_to_split.append(move.id)
+                continue
+        return moves_to_split, picking_complete
+
     def _prepare_create_data(self, picking_id):
         def _find_pricelist_cost(cr, uid, pl_id, prod_id, partner, uom, date, context=None):
             pl_obj = self.session.pool.get('product.pricelist')
@@ -600,12 +713,12 @@ class StockPickingAdapter(BotsCRUDAdapter):
             MODEL = 'bots.stock.picking.in'
             TYPE = 'in'
             FILENAME = 'picking_in_%s.json'
-            ALLOWED_STATES = ('waiting', 'confirmed', 'assigned', 'done')
+            ALLOWED_STATES = ['waiting', 'confirmed', 'assigned',]
         elif self._picking_type == 'out':
             MODEL = 'bots.stock.picking.out'
             TYPE = 'out'
             FILENAME = 'picking_out_%s.json'
-            ALLOWED_STATES = ('assigned', 'done')
+            ALLOWED_STATES = ['assigned',]
         else:
             raise NotImplementedError('Unable to adapt stock picking of type %s' % (self._picking_type,))
 
@@ -625,6 +738,10 @@ class StockPickingAdapter(BotsCRUDAdapter):
         ctx = (self.session.context or {}).copy()
         ctx.update({'company_id': default_company_id})
         default_company = self.session.pool.get('res.company').browse(self.session.cr, self.session.uid, default_company_id, context=ctx)
+
+        # For exporting pickings, include done moves if exporting once picking done
+        if getattr(picking.backend_id, 'feat_export_picking_out_when_done', False):
+            ALLOWED_STATES.append('done')
 
         picking = bots_picking_obj.browse(self.session.cr, self.session.uid, picking_id, context=ctx)
         if self._picking_type == 'out':
@@ -659,24 +776,18 @@ class StockPickingAdapter(BotsCRUDAdapter):
             existing_id = picking_binder.to_openerp(bots_id)
 
         # Select which moves we will ship
-        picking_complete = True
-        moves_to_split = []
+        moves_to_split, picking_complete = self._get_moves_to_split(picking, ALLOWED_STATES)
         order_lines = []
         seq = 1
-        for move in picking.move_lines:
-            if move.state == 'cancel':
-                moves_to_split.append(move.id)
-                continue
-            elif move.state not in ALLOWED_STATES:
-                picking_complete = False
-                moves_to_split.append(move.id)
-                continue
-            product_bots_id = move.product_id and product_binder.to_backend(move.product_id.id)
-            if not product_bots_id:
-                picking_complete = False
-                moves_to_split.append(move.id)
+
+        moves = [move for move in picking.move_lines]
+        bundle_sku_count = Counter([move.sale_parent_line_id.product_id.id for move in moves if move.sale_parent_line_id])
+
+        for move in moves:
+            if move.id in moves_to_split:
                 continue
 
+            product_bots_id = move.product_id and product_binder.to_backend(move.product_id.id)
             product_supplier_sku = product_bots_id
             for supplier in move.product_id.seller_ids:
                 if supplier.product_code and supplier.name.id == move.partner_id.id:
@@ -684,11 +795,19 @@ class StockPickingAdapter(BotsCRUDAdapter):
                     break
 
             discount = 0
-            price_unit = move.product_id.standard_price
+            price_unit = 0.0
+            bundle = False
             currency = default_company.currency_id
             tax_id = []
             if move.sale_line_id:
                 price_unit = move.sale_line_id.price_unit
+
+                # Take the parent line's price if no price on simple product
+                if move.sale_parent_line_id and not price_unit:
+                    sale_order_line = move.sale_parent_line_id
+                    price_unit = sale_order_line.price_unit
+                    bundle = True
+                
                 currency = move.sale_line_id.order_id.currency_id
                 discount = move.sale_line_id.discount
                 tax_id = move.sale_line_id.tax_id
@@ -722,7 +841,21 @@ class StockPickingAdapter(BotsCRUDAdapter):
                     price_unit = currency_obj.compute(self.session.cr, self.session.uid, default_currency.id, currency.id, price_unit, round=False, context=ctx)
                 ordered_qty = move.product_qty
 
-            price = currency_obj.round(self.session.cr, self.session.uid, currency, (1 - (discount/100.0)) * price_unit)
+            price_unit = price_unit or move.product_id.list_price
+            discounted_price = (1 - (discount / 100.0)) * price_unit
+
+            price = currency_obj.round(self.session.cr, self.session.uid, currency, discounted_price)
+
+            taxes = tax_obj.compute_all(
+                self.session.cr, self.session.uid, tax_id, discounted_price, 1,
+                move.product_id, move.partner_id
+            )
+
+            if bundle:
+                # This is to get the correct price for multi-sku bundles where the unit price for each sku has to be
+                # total cost of bundle / number of skus
+                bundle_count = bundle_sku_count[move.sale_parent_line_id.product_id.id]
+                price = (price * 100 // bundle_count) / 100
 
             price_exc_tax = tax_obj.compute_all(self.session.cr, self.session.uid, tax_id, price_unit * (1-(discount or 0.0)/100.0),
                                             1, move.product_id, move.partner_id)['total'] # Use product quantity of 1 as the unit price is being exported
@@ -741,10 +874,12 @@ class StockPickingAdapter(BotsCRUDAdapter):
                     "uom": move.product_uom.name,
                     "product_uos_qty": int(move.product_uos_qty),
                     "uos": move.product_uos.name,
-                    "price_unit_ex_vat": round(price_exc_tax, precision),
                     "price_unit": round(price, precision),
                     "price_currency": currency.name,
+                    "alternative_description": move.name,
+                    "bundle": int(bundle)
                 }
+
             if move.product_id.volume:
                 order_line['volume_net'] = move.product_id.volume
             if move.product_id.weight:
@@ -757,12 +892,12 @@ class StockPickingAdapter(BotsCRUDAdapter):
                 order_line['customs_free_from'] = not picking.bots_customs
 
             if move.sale_line_id:
-                taxes = tax_obj.compute_all(self.session.cr, self.session.uid, move.sale_line_id.tax_id, move.sale_line_id.price_unit * (1-(move.sale_line_id.discount or 0.0)/100.0),
-                                            move.product_qty, move.product_id, move.sale_line_id.order_id.partner_id)
-                order_line['price_total_ex_tax'] = round(taxes['total'],precision)
-                order_line['price_total_inc_tax'] = round(taxes['total_included'],precision)
+                # Maintain backwards compatibility with the bots mapping... but should be removed in the future...
+                order_line['price_total_ex_tax'] = round(taxes['total'], precision)
+                order_line['price_total_inc_tax'] = round(taxes['total_included'], precision)
 
                 total_rate = 0.0
+                tax_rate = 0.0
                 for tax in move.sale_line_id.tax_id:
                     if tax.type == 'percent' and tax.price_include == False:
                         total_rate += tax.amount
@@ -770,8 +905,14 @@ class StockPickingAdapter(BotsCRUDAdapter):
                         break # Only supports aggregating percentage taxes
                         # raise osv.except_osv(_('Error !'), _('This report does not support tax with ID %s') % (tax.id,))
                 else:
-                    order_line['tax_rate'] = round(total_rate*100.0, precision)
+                    tax_rate = round(total_rate * 100.0, precision)
 
+                try:
+                    worked_out_rate = (100 * ((taxes['total_included'] - taxes['total']) / taxes['total']))
+                except ZeroDivisionError:
+                    worked_out_rate = 0.0
+
+                order_line['tax_rate'] = tax_rate or worked_out_rate
 
             order_lines.append(order_line)
             seq += 1
@@ -793,6 +934,7 @@ class StockPickingAdapter(BotsCRUDAdapter):
                                               {
                                                   'move_type': sale_policy,
                                                   'move_lines': [],
+                                                  'origin': picking.origin,
                                               },
                                               context=ctx)
             move_obj.write(self.session.cr, self.session.uid, moves_to_split, {'picking_id': new_picking_id}, context=ctx)
@@ -949,6 +1091,7 @@ class StockPickingInAdapter(StockPickingAdapter):
 def picking_available(session, model_name, record_id, picking_type, location_type):
     warehouse_obj = session.pool.get('stock.warehouse')
     bots_warehouse_obj = session.pool.get('bots.warehouse')
+    bots_backend_obj = session.pool.get('bots.backend')
     picking = session.browse(model_name, record_id)
     # Check to see if the picking should be exported to the WMS
     # If so create binding, else return
@@ -975,10 +1118,13 @@ def picking_available(session, model_name, record_id, picking_type, location_typ
         if warehouse_ids:
             break
 
+    bots_dropship_backend_id = bots_backend_obj.search(session.cr, session.uid, [('name', '=', DROPSHIP_BACKEND)])[0]
+    bots_dropship_backend_id = bots_backend_obj.browse(session.cr, session.uid, bots_dropship_backend_id)
     bots_warehouse_ids = bots_warehouse_obj.search(session.cr, session.uid, [('warehouse_id', 'in', warehouse_ids)])
     bots_warehouse = bots_warehouse_obj.browse(session.cr, session.uid, bots_warehouse_ids)
     for warehouse in bots_warehouse:
-        backend_id = warehouse.backend_id
+        backend_id = bots_dropship_backend_id if picking.sp_dropship else warehouse.backend_id
+
         if (picking_type == 'bots.stock.picking.out' and backend_id.feat_picking_out) or \
             (picking_type == 'bots.stock.picking.in' and backend_id.feat_picking_in):
             session.create(picking_type,
@@ -998,12 +1144,16 @@ def picking_cancel(session, model_name, record_id, picking_type):
                 and not all([move.state == 'cancel' for move in picking.move_lines]):
             late_pickings.append(picking.name)
             continue
-        if (picking_type == 'bots.stock.picking.out' and picking.backend_id.feat_picking_out_cancel) or \
+        if not picking.bots_id:
+            picking.unlink()
+        elif (picking_type == 'bots.stock.picking.out' and picking.backend_id.feat_picking_out_cancel) or \
             (picking_type == 'bots.stock.picking.in' and picking.backend_id.feat_picking_in_cancel):
             export_picking_cancel.delay(session, picking_type, picking.id)
+        #else:
+        #    raise osv.except_osv(_('Error!'), _('Cancellations are not enabled and this picking has already been exported to the warehouse: %s') % (picking.name,))
 
     if late_pickings:
-        raise osv.except_osv(_('Error!'), _('Could not cancel the following pickings, they might have already been delivered by the warehouse: %s') % ", ".join(late_pickings))
+        raise osv.except_osv(_('Error!'), _('Could not cancel the following pickings, they might have already been delivered by the warehouse: %s') % (", ".join(late_pickings),))
 
 @bots
 class BotsPickingExport(ExportSynchronizer):
@@ -1028,11 +1178,34 @@ class BotsPickingExport(ExportSynchronizer):
 
 @on_record_create(model_names='bots.stock.picking.out')
 def delay_export_picking_out(session, model_name, record_id, vals):
-    export_picking.delay(session, model_name, record_id)
+    # By default delay for 15 mins (configurable) to allow multiple moves becoming available within a short time to be exported together
+    delay = session.pool.get('ir.config_parameter').get_param(session.cr, session.uid, 'connector.bots.picking_out_delay', default=900)
+    if type(delay) in (str, unicode):
+        delay = delay.isdigit() and int(delay) or 900
+
+    # Dropship orders do not export data to the warehouse but we need the bots record to have a bots id so it will
+    # show as exported.
+    # Setting the bots id here instead of modifying the export_picking job so the system does less work and also
+    # because the inheritance for the adapters is too much work to modify just for this
+    picking = session.pool.get(model_name).browse(session.cr, session.uid, record_id)
+    if picking.openerp_id.sp_dropship:
+
+        for count in range(0, 20):
+            bots_id = '%s%s%s' % (picking.openerp_id.sale_id.name, DROPSHIP_SEPARATOR, count)
+
+            if not session.pool.get('bots.stock.picking.out').search(session.cr, session.uid, [('bots_id', '=', bots_id)]):
+                picking.write({'bots_id': bots_id})
+                return
+        else:
+            raise Exception('Unable to create a unique bots id')
+
+    export_picking.delay(session, model_name, record_id, eta=delay, priority=EXPORT_PICKING_PRIORITY)
+
 
 @on_record_create(model_names='bots.stock.picking.in')
 def delay_export_picking_in(session, model_name, record_id, vals):
-    export_picking.delay(session, model_name, record_id)
+    export_picking.delay(session, model_name, record_id, priority=EXPORT_PICKING_PRIORITY)
+
 
 @job
 def export_picking(session, model_name, record_id):

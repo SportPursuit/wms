@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 ##############################################################################
 #
-#    Copyright 2014 credativ Ltd
+#    Copyright 2016 credativ Ltd
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU Affero General Public License as
@@ -18,12 +18,22 @@
 #
 ##############################################################################
 
-import stock
-import connector
-import backend
-import bots_model
-import product
-import sale
-import stock_warehouse
-import purchase
-import delivery
+{
+    'name': 'BOTS Connector Magento Bundle Support',
+    'version': '1.0',
+    'category': 'Connector',
+    'author': 'credativ Ltd',
+    'website': 'http://www.credativ.co.uk',
+    'license': 'AGPL-3',
+    'description': '''
+This module adds an awareness of Magento bundles to the BOTS connector, and ensures that these are kept together when splitting pickings.
+    ''',
+    'depends': [
+        'connector_bots',
+        'magento_bundle_availability', # https://github.com/credativUK/credativ-addons
+    ],
+    'data': [
+    ],
+    'installable': True,
+    'active' : False,
+}
