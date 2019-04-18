@@ -68,7 +68,7 @@ def get_bots_picking_ids(cr, uid, ids, ids_skipped, table, not_in_move_states, b
                     AND bsp.bots_override = False
                     AND bsp.id NOT IN {2}
                     AND sm.state NOT IN {3}
-                    AND bsp.bots_id {4}""".format(table, tuple(ids), tuple(ids_skipped), tuple(not_in_move_states), bots_id_condition)
+                    AND bsp.bots_id {4};""".format(table, tuple(ids), tuple(ids_skipped), tuple(not_in_move_states), bots_id_condition)
 
     logger.info("Executing query: {0}".format(bots_query))
     cr.execute(bots_query)
