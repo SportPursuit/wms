@@ -43,9 +43,6 @@ from datetime import datetime
 import re
 import openerp.addons.decimal_precision as dp
 
-import logging
-_logger = logging.getLogger(__name__)
-
 
 EXPORT_PICKING_PRIORITY = 3
 
@@ -138,8 +135,6 @@ class StockPickingIn(orm.Model):
             exported_pickings = bots_picking_obj.read(cr, uid, ids_all, ['bots_id', 'backend_id'], context=context)
             ids_all = [x['id'] for x in exported_pickings if not x['bots_id'] or not x['backend_id'] in backend_ids]
         if ids_all and doraise:
-            logger.warning("Pickings found that invalidate modification:")
-            logger.warning(ids_all)
             raise osv.except_osv(_('Error!'), _("This picking has been exported, or is pending export, to an external WMS and cannot be modified directly in OpenERP: %s".format(ids_all)))
         if ids_exported:
             res['exported'] = ids_exported
@@ -241,8 +236,6 @@ class StockPickingOut(orm.Model):
             exported_pickings = bots_picking_obj.read(cr, uid, ids_all, ['bots_id', 'backend_id'], context=context)
             ids_all = [x['id'] for x in exported_pickings if not x['bots_id'] or not x['backend_id'] in backend_ids]
         if ids_all and doraise:
-            logger.warning("Pickings found that invalidate modification:")
-            logger.warning(ids_all)
             raise osv.except_osv(_('Error!'), _("This picking has been exported, or is pending export, to an external WMS and cannot be modified directly in OpenERP: %s".format(ids_all)))
         if ids_exported:
             res['exported'] = ids_exported
@@ -431,8 +424,6 @@ class StockPicking(orm.Model):
                 exported_pickings = self.pool.get(MODEL).read(cr, uid, ids_all, ['bots_id', 'backend_id'], context=context)
                 ids_all = [x['id'] for x in exported_pickings if not x['bots_id'] or not x['backend_id'] in backend_ids]
             if ids_all and doraise:
-                logger.warning("Pickings found that invalidate modification:")
-                logger.warning(ids_all)
                 raise osv.except_osv(_('Error!'), _("This picking has been exported, or is pending export, to an external WMS and cannot be modified directly in OpenERP: %s".format(ids_all)))
             exported.extend(ids_exported)
             pending.extend(ids_pending)
