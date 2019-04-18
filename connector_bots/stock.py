@@ -44,7 +44,7 @@ import re
 import openerp.addons.decimal_precision as dp
 
 import logging
-_logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 EXPORT_PICKING_PRIORITY = 3
