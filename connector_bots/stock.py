@@ -61,17 +61,18 @@ def get_bots_picking_ids(cr, uid, ids, ids_skipped, table, not_in_move_states, b
         ids_skipped = list(ids_skipped) + list(ids_skipped)
     if len(list(not_in_move_states)) == 1:
         not_in_move_states = list(not_in_move_states) + list(not_in_move_states)
-    bots_query = """SELECT DISTINCT(bsp.id) FROM {0} AS bsp
+    bots_query = """SELECT DISTINCT(bsp.id) FROM %(t)s AS bsp
                     INNER JOIN stock_picking AS sp ON sp.id = bsp.openerp_id
                     LEFT JOIN stock_move AS sm ON sp.id = sm.picking_id
-                    WHERE bsp.openerp_id IN {1}
+                    WHERE bsp.openerp_id IN %(i)s
                     AND bsp.bots_override = False
-                    AND bsp.id NOT IN {2}
-                    AND sm.state NOT IN {3}
-                    AND bsp.bots_id {4};""".format(table, tuple(ids), tuple(ids_skipped), tuple(not_in_move_states), bots_id_condition)
+                    AND bsp.id NOT IN %(is)s
+                    AND sm.state NOT IN %(nims)s
+                    AND bsp.bots_id %(bic)s;"""
+    data = {'t': table, 'i': tuple(ids), 'is': tuple(ids_skipped), 'nims': tuple(not_in_move_states), 'bic': bots_id_condition}
 
-    logger.info("Executing query: {0}".format(bots_query))
-    cr.execute(bots_query)
+    logger.info("Executing query: {0} with input {1}".format(bots_query, data))
+    cr.execute(bots_query, data)
     output = cr.fetchall()
     logger.info("Query returned ids: {0}".format(output))
     return [x[0] for x in output]
