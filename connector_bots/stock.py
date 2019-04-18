@@ -43,6 +43,9 @@ from datetime import datetime
 import re
 import openerp.addons.decimal_precision as dp
 
+import logging
+_logger = logging.getLogger(__name__)
+
 
 EXPORT_PICKING_PRIORITY = 3
 
@@ -51,15 +54,19 @@ DROPSHIP_BACKEND = 'Dropship Shipments'
 
 
 def get_bots_picking_ids(cr, uid, ids, ids_skipped, table, not_in_move_states, bots_id_condition, context={}):
-    cr.execute("SELECT DISTINCT(bsp.id) FROM "+ table +" AS bsp " \
+    bots_query = "SELECT DISTINCT(bsp.id) FROM "+ table +" AS bsp " \
                 "INNER JOIN stock_picking AS sp ON sp.id = bsp.openerp_id " \
                 "LEFT JOIN stock_move AS sm ON sp.id = sm.picking_id " \
                 "WHERE bsp.openerp_id IN %s " \
                 "AND bsp.bots_override = False " \
                 "AND bsp.id NOT IN %s " \
                 "AND sm.state NOT IN %s " \
-                "AND bsp.bots_id " + bots_id_condition , (tuple(ids), tuple(ids_skipped), tuple(not_in_move_states)))
-    return [x[0] for x in cr.fetchall()]
+                "AND bsp.bots_id " + bots_id_condition , (tuple(ids), tuple(ids_skipped), tuple(not_in_move_states))
+    logger.info("Executing query: {0}".format(bots_query))
+    cr.execute(bots_query)
+    output = cr.fetchall()
+    logger.info("Query returned ids: {0}".format(output))
+    return [x[0] for x in output]
 
 class OrderPrio(orm.Model):
     _name = 'order.prio'
@@ -236,7 +243,7 @@ class StockPickingOut(orm.Model):
             exported_pickings = bots_picking_obj.read(cr, uid, ids_all, ['bots_id', 'backend_id'], context=context)
             ids_all = [x['id'] for x in exported_pickings if not x['bots_id'] or not x['backend_id'] in backend_ids]
         if ids_all and doraise:
-            raise osv.except_osv(_('Error!'), _("This picking has been exported, or is pending export, to an external WMS and cannot be modified directly in OpenERP: {0}".format(ids_all)))
+            raise osv.except_osv(_('Error!'), _("This picking has been exported, or is pending export, to an external WMS and cannot be modified directly in OpenERP. Pending ids: {0}, Exported ids: {1}".format(ids_pending, ids_exported)))
         if ids_exported:
             res['exported'] = ids_exported
         if ids_pending:
