@@ -54,14 +54,15 @@ DROPSHIP_BACKEND = 'Dropship Shipments'
 
 
 def get_bots_picking_ids(cr, uid, ids, ids_skipped, table, not_in_move_states, bots_id_condition, context={}):
-    bots_query = "SELECT DISTINCT(bsp.id) FROM "+ table +" AS bsp " \
-                "INNER JOIN stock_picking AS sp ON sp.id = bsp.openerp_id " \
-                "LEFT JOIN stock_move AS sm ON sp.id = sm.picking_id " \
-                "WHERE bsp.openerp_id IN %s " \
-                "AND bsp.bots_override = False " \
-                "AND bsp.id NOT IN %s " \
-                "AND sm.state NOT IN %s " \
-                "AND bsp.bots_id " + bots_id_condition , (tuple(ids), tuple(ids_skipped), tuple(not_in_move_states))
+    bots_query = """SELECT DISTINCT(bsp.id) FROM " + table + " AS bsp
+                    INNER JOIN stock_picking AS sp ON sp.id = bsp.openerp_id
+                    LEFT JOIN stock_move AS sm ON sp.id = sm.picking_id
+                    WHERE bsp.openerp_id IN {0}
+                    AND bsp.bots_override = False
+                    AND bsp.id NOT IN {1}
+                    AND sm.state NOT IN {2}
+                    AND bsp.bots_id {3}""".format(tuple(ids), tuple(ids_skipped), tuple(not_in_move_states), bots_id_condition)
+
     logger.info("Executing query: {0}".format(bots_query))
     cr.execute(bots_query)
     output = cr.fetchall()
