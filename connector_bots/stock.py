@@ -140,7 +140,7 @@ class StockPickingIn(orm.Model):
         if ids_all and doraise:
             logger.warning("Pickings found that invalidate modification:")
             logger.warning(ids_all)
-            raise osv.except_osv(_('Error!'), _('This picking has been exported, or is pending export, to an external WMS and cannot be modified directly in OpenERP.'))
+            raise osv.except_osv(_('Error!'), _("This picking has been exported, or is pending export, to an external WMS and cannot be modified directly in OpenERP: %s".format(ids_all)))
         if ids_exported:
             res['exported'] = ids_exported
         if ids_pending:
@@ -243,7 +243,7 @@ class StockPickingOut(orm.Model):
         if ids_all and doraise:
             logger.warning("Pickings found that invalidate modification:")
             logger.warning(ids_all)
-            raise osv.except_osv(_('Error!'), _('This picking has been exported, or is pending export, to an external WMS and cannot be modified directly in OpenERP.'))
+            raise osv.except_osv(_('Error!'), _("This picking has been exported, or is pending export, to an external WMS and cannot be modified directly in OpenERP: %s".format(ids_all)))
         if ids_exported:
             res['exported'] = ids_exported
         if ids_pending:
@@ -433,7 +433,7 @@ class StockPicking(orm.Model):
             if ids_all and doraise:
                 logger.warning("Pickings found that invalidate modification:")
                 logger.warning(ids_all)
-                raise osv.except_osv(_('Error!'), _('This picking has been exported, or is pending export, to an external WMS and cannot be modified directly in OpenERP.'))
+                raise osv.except_osv(_('Error!'), _("This picking has been exported, or is pending export, to an external WMS and cannot be modified directly in OpenERP: %s".format(ids_all)))
             exported.extend(ids_exported)
             pending.extend(ids_pending)
         res = {}
