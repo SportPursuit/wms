@@ -8,11 +8,14 @@ class product_product(osv.osv):
     _inherit = "product.product"
 
     def _product_available_supplier_feed(self, cr, uid, ids, field_names=None, arg=False, context=None):
-
         c = context.copy()
+
+        warehouse_obj = self.session.pool.get('stock.warehouse')
+        warehouse_id = c.get('warehouse')
+
         c['location'] = SUPPLIER_STOCK_FEED
-        warehouse = c.get('warehouse')
-        if warehouse:
+        if warehouse_id:
+            warehouse = warehouse_obj.browse(cr, uid, warehouse_id, context=c)
             c['location'] = warehouse.lot_supplier_feed_id.id
         c['states'] = ('confirmed', 'waiting', 'assigned', 'done')
         c['what'] = ('in', 'out')
