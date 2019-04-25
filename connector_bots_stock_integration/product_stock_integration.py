@@ -11,6 +11,9 @@ class product_product(osv.osv):
 
         c = context.copy()
         c['location'] = SUPPLIER_STOCK_FEED
+        warehouse = c.get('warehouse')
+        if warehouse:
+            c['location'] = warehouse.lot_supplier_feed_id.id
         c['states'] = ('confirmed', 'waiting', 'assigned', 'done')
         c['what'] = ('in', 'out')
 
