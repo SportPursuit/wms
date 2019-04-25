@@ -10,7 +10,7 @@ class product_product(osv.osv):
     def _product_available_supplier_feed(self, cr, uid, ids, field_names=None, arg=False, context=None):
         c = context.copy()
 
-        warehouse_obj = self.session.pool.get('stock.warehouse')
+        warehouse_obj = self.pool.get('stock.warehouse')
         warehouse_id = c.get('warehouse')
 
         c['location'] = SUPPLIER_STOCK_FEED
