@@ -346,6 +346,8 @@ class StockAdapter(BotsCRUDAdapter):
             if supplier.stock_feed_threshold and 0 < qty <= supplier.stock_feed_threshold:
                 qty = 0
 
+            logger.info("Creating physical inventory for product {0}, for warehouse {1}, qty {2}".format(product_id, warehouse_id, qty))
+
             inventory_line_record = {
                 'product_uom': 1,
                 'product_id': product_id,
