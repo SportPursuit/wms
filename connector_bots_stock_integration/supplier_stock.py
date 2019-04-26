@@ -331,7 +331,7 @@ class StockAdapter(BotsCRUDAdapter):
         logger.info(warehouse_obj.read(self.session.cr, SUPERUSER_ID, warehouse_id,
                                        ['lot_supplier_feed_id']))
         stock_location_id = warehouse_obj.read(self.session.cr, SUPERUSER_ID, warehouse_id,
-                                               ['lot_supplier_feed_id'])[0]['lot_supplier_feed_id']['id']
+                                               ['lot_supplier_feed_id'])['lot_supplier_feed_id']
 
         today = datetime.strftime(datetime.now(), "%d-%m-%Y")
 
