@@ -1,7 +1,11 @@
+import logging
 from openerp.osv import osv, fields
 import openerp.addons.decimal_precision as dp
 
 from .supplier_stock import SUPPLIER_STOCK_FEED
+
+
+logger = logging.getLogger(__name__)
 
 
 class product_product(osv.osv):
@@ -57,6 +61,7 @@ class product_product(osv.osv):
             for product, qty in products.iteritems():
                 result[product]['supplier_virtual_available_combined'] += qty
 
+        logger.info("supplier_virtual_available_combined: {result}".format(result=result))
         return result
 
     _columns = {
