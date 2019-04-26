@@ -327,9 +327,9 @@ class StockAdapter(BotsCRUDAdapter):
 
     def _create_physical_inventory(self, supplier, product_details):
         warehouse_obj = self.session.pool.get('stock.warehouse')
-        warehouse_ids = warehouse_obj.search(self.session.cr, SUPERUSER_ID, [('id', '=', supplier.default_warehouse_id.id)])
-        stock_location_id = warehouse_obj.read(self.session.cr, SUPERUSER_ID, warehouse_ids,
-                                               ['lot_supplier_feed_id'])[0]
+        warehouse_id = warehouse_obj.search(self.session.cr, SUPERUSER_ID, [('id', '=', supplier.default_warehouse_id.id)])[0]
+        stock_location_id = warehouse_obj.read(self.session.cr, SUPERUSER_ID, warehouse_id,
+                                               ['lot_supplier_feed_id'])['lot_supplier_feed_id']['id']
 
         today = datetime.strftime(datetime.now(), "%d-%m-%Y")
 
