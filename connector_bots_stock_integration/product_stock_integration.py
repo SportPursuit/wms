@@ -7,10 +7,19 @@ from .supplier_stock import SUPPLIER_STOCK_FEED
 class product_product(osv.osv):
     _inherit = "product.product"
 
+    def _get_location(self, cr, uid, context):
+        warehouse_id = context.get('warehouse', None)
+        if not warehouse_id:
+            return SUPPLIER_STOCK_FEED
+        warehouse = self.pool['stock.warehouse'].browse(
+            cr, uid, warehouse_id, context=context
+        )
+        return warehouse.lot_supplier_feed_id.id
+
     def _product_available_supplier_feed(self, cr, uid, ids, field_names=None, arg=False, context=None):
 
         c = context.copy()
-        c['location'] = SUPPLIER_STOCK_FEED
+        c['location'] = self._get_location(cr, uid, context=context)
         c['states'] = ('confirmed', 'waiting', 'assigned', 'done')
         c['what'] = ('in', 'out')
 
@@ -19,7 +28,6 @@ class product_product(osv.osv):
         return {
             product: qty for product, qty in products.iteritems()
         }
-
     
     def _product_available_supplier(self, cr, uid, ids, field_names=None, arg=False, context=None):
 
