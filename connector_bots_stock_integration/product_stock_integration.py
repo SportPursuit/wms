@@ -30,7 +30,6 @@ class product_product(osv.osv):
             product: qty for product, qty in products.iteritems()
         }
 
-    
     def _product_available_supplier(self, cr, uid, ids, field_names=None, arg=False, context=None):
 
         field_names = field_names or []
@@ -61,7 +60,6 @@ class product_product(osv.osv):
             for product, qty in products.iteritems():
                 result[product]['supplier_virtual_available_combined'] += qty
 
-        logger.info("supplier_virtual_available_combined: {result}".format(result=result))
         return result
 
     _columns = {
