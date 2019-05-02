@@ -1,16 +1,26 @@
+import logging
 from openerp.osv import osv, fields
 import openerp.addons.decimal_precision as dp
 
 from .supplier_stock import SUPPLIER_STOCK_FEED
 
 
+logger = logging.getLogger(__name__)
+
+
 class product_product(osv.osv):
     _inherit = "product.product"
 
     def _product_available_supplier_feed(self, cr, uid, ids, field_names=None, arg=False, context=None):
-
         c = context.copy()
+
+        warehouse_obj = self.pool.get('stock.warehouse')
+        warehouse_id = c.get('warehouse')
+
         c['location'] = SUPPLIER_STOCK_FEED
+        if warehouse_id:
+            warehouse = warehouse_obj.browse(cr, uid, warehouse_id, context=c)
+            c['location'] = warehouse.lot_supplier_feed_id.id
         c['states'] = ('confirmed', 'waiting', 'assigned', 'done')
         c['what'] = ('in', 'out')
 
@@ -20,7 +30,6 @@ class product_product(osv.osv):
             product: qty for product, qty in products.iteritems()
         }
 
-    
     def _product_available_supplier(self, cr, uid, ids, field_names=None, arg=False, context=None):
 
         field_names = field_names or []
