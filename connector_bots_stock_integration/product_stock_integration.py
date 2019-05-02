@@ -11,16 +11,18 @@ logger = logging.getLogger(__name__)
 class product_product(osv.osv):
     _inherit = "product.product"
 
+    def _get_location(self, cr, uid, context):
+        warehouse_id = context.get('warehouse', None)
+        if not warehouse_id:
+            return SUPPLIER_STOCK_FEED
+        warehouse = self.pool['stock.warehouse'].browse(
+            cr, uid, warehouse_id, context=context
+        )
+        return warehouse.lot_supplier_feed_id.id
+
     def _product_available_supplier_feed(self, cr, uid, ids, field_names=None, arg=False, context=None):
         c = context.copy()
-
-        warehouse_obj = self.pool.get('stock.warehouse')
-        warehouse_id = c.get('warehouse')
-
-        c['location'] = SUPPLIER_STOCK_FEED
-        if warehouse_id:
-            warehouse = warehouse_obj.browse(cr, uid, warehouse_id, context=c)
-            c['location'] = warehouse.lot_supplier_feed_id.id
+        c['location'] = self._get_location(cr, uid, context=context)
         c['states'] = ('confirmed', 'waiting', 'assigned', 'done')
         c['what'] = ('in', 'out')
 
