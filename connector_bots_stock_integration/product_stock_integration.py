@@ -26,6 +26,11 @@ class product_product(osv.osv):
         c['states'] = ('confirmed', 'waiting', 'assigned', 'done')
         c['what'] = ('in', 'out')
 
+        # WARNING: enforcing the warehouse to be False since
+        # get_product_available overrides the location context
+        # with the warehouse location lot_stock_id
+        c['warehouse'] = False
+
         products = self.get_product_available(cr, uid, ids, context=c)
 
         return {
