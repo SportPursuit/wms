@@ -1,8 +1,7 @@
 import logging
+
 from openerp.osv import osv, fields
 import openerp.addons.decimal_precision as dp
-
-from .supplier_stock import SUPPLIER_STOCK_FEED
 
 
 logger = logging.getLogger(__name__)
@@ -11,31 +10,26 @@ logger = logging.getLogger(__name__)
 class product_product(osv.osv):
     _inherit = "product.product"
 
-    def _get_location(self, cr, uid, context):
-        warehouse_id = context.get('warehouse', None)
-        if not warehouse_id:
-            return SUPPLIER_STOCK_FEED
-        warehouse = self.pool['stock.warehouse'].browse(
-            cr, uid, warehouse_id, context=context
-        )
-        return warehouse.lot_supplier_feed_id.id
-
     def _product_available_supplier_feed(self, cr, uid, ids, field_names=None, arg=False, context=None):
+        warehouse_id = context.get('warehouse', False)
+
         c = context.copy()
-        c['location'] = self._get_location(cr, uid, context=context)
         c['states'] = ('confirmed', 'waiting', 'assigned', 'done')
         c['what'] = ('in', 'out')
-
         # WARNING: enforcing the warehouse to be False since
         # get_product_available overrides the location context
         # with the warehouse location lot_stock_id
         c['warehouse'] = False
 
-        products = self.get_product_available(cr, uid, ids, context=c)
+        products = {}.fromkeys(ids, 0.0)
+        for product_id in ids:
+            main_supplier = self._get_main_product_supplier(cr, uid, product_id, context)
+            if main_supplier:
+                if main_supplier.default_warehouse_id.id == warehouse_id:
+                    c['location'] = main_supplier.default_warehouse_id.lot_supplier_feed_id
+                    products.update(self.get_product_available(cr, uid, product_id, context=c))
 
-        return {
-            product: qty for product, qty in products.iteritems()
-        }
+        return products
 
     def _product_available_supplier(self, cr, uid, ids, field_names=None, arg=False, context=None):
 
