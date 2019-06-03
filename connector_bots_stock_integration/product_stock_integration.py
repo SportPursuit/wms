@@ -26,6 +26,9 @@ class product_product(osv.osv):
             )
 
         products = {}.fromkeys(ids, 0.0)
+        product_ids = ', '.join(
+            [str(product_id) for product_id in ids]
+        )
         cr.execute("""
                 SELECT si.product_id
                 FROM product_supplierinfo AS si 
@@ -33,7 +36,7 @@ class product_product(osv.osv):
                     ON si."name" = rp.id
                 WHERE rp.default_warehouse_id = %s
                     AND si.product_id in (%s);
-                """, (warehouse.id, ', '.join(ids)))
+                """, (warehouse.id, product_ids))
 
         product_default_warehouse_mapped = [product[0] for product in cr.fetchall()]
         logger.info("Pre update products: %s" % products)
