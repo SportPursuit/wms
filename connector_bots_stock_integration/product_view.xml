@@ -8,7 +8,7 @@
             <field name="inherit_id" ref="stock_supplier_levels.view_normal_procurement_locations_form_ssl"/>
             <field name="arch" type="xml">
                 <field name="supplier_virtual_available_combined" position="before">
-                    <field name="supplier_feed_quantity" context="{'supplier' : 'seller_id'}"/>
+                    <field name="supplier_feed_quantity" context="{'default_supplier' : 'seller_id'}"/>
                 </field>
            </field>
         </record>
