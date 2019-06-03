@@ -45,7 +45,7 @@ class product_product(osv.osv):
 
     def _product_available_supplier_feed(self, cr, uid, ids, field_names=None, arg=False, context=None):
         supplier = context.get('supplier', False)
-        partner_obj = self.pool.get('res_partner')
+        partner_obj = self.pool.get('res.partner')
 
         supplier = partner_obj.browse(cr, uid, supplier, context=context)
         return self._get_available_supplier_feed_qty(cr, uid, ids, supplier.default_warehouse_id)
