@@ -10,40 +10,17 @@ logger = logging.getLogger(__name__)
 class product_product(osv.osv):
     _inherit = "product.product"
 
-    def _product_available_supplier_feed(self, cr, uid, ids, field_names=None, arg=False, context=None):
-        supplier = context.get('supplier', False)
-        warehouse = context.get('warehouse', False)
-
-        partner_obj = self.pool.get('res_partner')
-        warehouse_obj = self.pool.get('stock.warehouse')
-
-        if warehouse:
-            if isinstance(warehouse, (str, unicode)):
-                warehouse = warehouse_obj.browse(
-                    cr, uid, warehouse_obj.search(
-                        cr, uid, [('name' '=', warehouse)]
-                    ), context=context
-                )
-            else:
-                warehouse = warehouse_obj.browse(
-                    cr, uid, warehouse, context=context
-                )
-        else:
-            supplier = partner_obj.browse(
-                cr, uid, supplier, context=context
-            )
-
+    def _get_available_supplier_feed_qty(self, cr, uid, ids, warehouse, context=None):
         products = {}.fromkeys(ids, 0.0)
         product_ids = ', '.join([str(product_id) for product_id in ids])
-        default_warehouse = warehouse or supplier.default_warehouse_id
         cr.execute("""
-                SELECT si.product_id
-                FROM product_supplierinfo AS si 
-                JOIN res_partner AS rp 
-                    ON si."name" = rp.id
-                WHERE rp.default_warehouse_id = %s
-                    AND si.product_id in (%s);
-                """, (default_warehouse.id, product_ids))
+                        SELECT si.product_id
+                        FROM product_supplierinfo AS si 
+                        JOIN res_partner AS rp 
+                            ON si."name" = rp.id
+                        WHERE rp.default_warehouse_id = %s
+                            AND si.product_id in (%s);
+                        """, (warehouse.id, product_ids))
 
         product_default_warehouse_mapped = [product[0] for product in cr.fetchall()]
         logger.info("Pre update products: %s" % products)
@@ -54,7 +31,7 @@ class product_product(osv.osv):
             context['warehouse'] = False
             context['what'] = ('in', 'out')
             context['states'] = ('confirmed', 'waiting', 'assigned', 'done')
-            context['location'] = default_warehouse.lot_supplier_feed_id.id
+            context['location'] = warehouse.lot_supplier_feed_id.id
             logger.info("Context products: %s" % products)
             products.update(
                 self.get_product_available(
@@ -64,6 +41,31 @@ class product_product(osv.osv):
 
         logger.info("Post update products: %s" % products)
         return products
+
+    def _product_available_supplier_feed(self, cr, uid, ids, field_names=None, arg=False, context=None):
+        supplier = context.get('supplier', False)
+        partner_obj = self.pool.get('res_partner')
+
+        supplier = partner_obj.browse(cr, uid, supplier, context=context)
+        return self._get_available_supplier_feed_qty(cr, uid, ids, supplier.default_warehouse_id)
+
+    # TODO: find a proper name for this
+    def _product_available_supplier_feed_logic(self, cr, uid, ids, context=None):
+        warehouse = context.get('warehouse', False)
+        warehouse_obj = self.pool.get('stock.warehouse')
+
+        if isinstance(warehouse, (str, unicode)):
+            warehouse = warehouse_obj.browse(
+                cr, uid, warehouse_obj.search(
+                    cr, uid, [('name' '=', warehouse)]
+                ), context=context
+            )
+        else:
+            warehouse = warehouse_obj.browse(
+                cr, uid, warehouse, context=context
+            )
+
+        return self._get_available_supplier_feed_qty(cr, uid, ids, warehouse)
 
     def _product_available_supplier(self, cr, uid, ids, field_names=None, arg=False, context=None):
 
@@ -90,7 +92,7 @@ class product_product(osv.osv):
         )
 
         if feed_enabled_products:
-            products = self._product_available_supplier_feed(cr, uid, feed_enabled_products, context=context)
+            products = self._product_available_supplier_feed_logic(cr, uid, feed_enabled_products, context=context)
 
             for product, qty in products.iteritems():
                 result[product]['supplier_virtual_available_combined'] += qty
