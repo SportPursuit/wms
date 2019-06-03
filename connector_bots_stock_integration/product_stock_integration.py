@@ -11,6 +11,7 @@ class product_product(osv.osv):
     _inherit = "product.product"
 
     def _get_available_supplier_feed_qty(self, cr, uid, ids, warehouse, context=None):
+        context = context or {}
         products = {}.fromkeys(ids, 0.0)
         product_ids = ', '.join([str(product_id) for product_id in ids])
         cr.execute("""
