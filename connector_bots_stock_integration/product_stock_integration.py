@@ -47,7 +47,7 @@ class product_product(osv.osv):
             context['warehouse'] = False
             context['what'] = ('in', 'out')
             context['states'] = ('confirmed', 'waiting', 'assigned', 'done')
-            context['location'] = warehouse.lot_supplier_feed_id
+            context['location'] = warehouse.lot_supplier_feed_id.id
             logger.info("Context products: %s" % products)
             products.update(
                 self.get_product_available(
