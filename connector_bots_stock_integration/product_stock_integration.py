@@ -11,24 +11,48 @@ class product_product(osv.osv):
     _inherit = "product.product"
 
     def _product_available_supplier_feed(self, cr, uid, ids, field_names=None, arg=False, context=None):
-        warehouse_id = context.get('warehouse', False)
+        warehouse = context.get('warehouse', False)
+        warehouse_obj = self.pool.get('stock.warehouse')
 
-        c = context.copy()
-        c['states'] = ('confirmed', 'waiting', 'assigned', 'done')
-        c['what'] = ('in', 'out')
-        # WARNING: enforcing the warehouse to be False since
-        # get_product_available overrides the location context
-        # with the warehouse location lot_stock_id
-        c['warehouse'] = False
+        if isinstance(warehouse, (str, unicode)):
+            warehouse = warehouse_obj.browse(
+                cr, uid, warehouse_obj.search(
+                    cr, uid, [('name' '=', warehouse)]
+                ), context=context
+            )
+        else:
+            warehouse = warehouse_obj.browse(
+                cr, uid, warehouse, context=context
+            )
 
         products = {}.fromkeys(ids, 0.0)
-        for product_id in ids:
-            main_supplier = self._get_main_product_supplier(cr, uid, product_id, context)
-            if main_supplier:
-                if main_supplier.default_warehouse_id.id == warehouse_id:
-                    c['location'] = main_supplier.default_warehouse_id.lot_supplier_feed_id
-                    products.update(self.get_product_available(cr, uid, product_id, context=c))
+        cr.execute("""
+                SELECT si.product_id
+                FROM product_supplierinfo AS si 
+                JOIN res_partner AS rp 
+                    ON si."name" = rp.id
+                WHERE rp.default_warehouse_id = %s
+                    AND si.product_id in (%s);
+                """, (warehouse.id, ', '.join(ids)))
 
+        product_default_warehouse_mapped = [product[0] for product in cr.fetchall()]
+        logger.info("Pre update products: %s" % products)
+        if product_default_warehouse_mapped:
+            # WARNING: enforcing the warehouse to be False since
+            # get_product_available overrides the location context
+            # with the warehouse location lot_stock_id
+            context['warehouse'] = False
+            context['what'] = ('in', 'out')
+            context['states'] = ('confirmed', 'waiting', 'assigned', 'done')
+            context['location'] = warehouse.lot_supplier_feed_id
+            logger.info("Context products: %s" % products)
+            products.update(
+                self.get_product_available(
+                    cr, uid, product_default_warehouse_mapped, context=context
+                )
+            )
+
+        logger.info("Post update products: %s" % products)
         return products
 
     def _product_available_supplier(self, cr, uid, ids, field_names=None, arg=False, context=None):
