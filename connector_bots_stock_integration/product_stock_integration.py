@@ -13,6 +13,9 @@ class product_product(osv.osv):
     def _get_available_supplier_feed_qty(self, cr, uid, ids, warehouse, context=None):
         context = context or {}
         products = {}.fromkeys(ids, 0.0)
+        if not warehouse:
+            return products
+
         product_ids = ', '.join([str(product_id) for product_id in ids])
         cr.execute("""
                         SELECT si.product_id
@@ -48,7 +51,8 @@ class product_product(osv.osv):
         partner_obj = self.pool.get('res.partner')
 
         supplier = partner_obj.browse(cr, uid, supplier, context=context)
-        return self._get_available_supplier_feed_qty(cr, uid, ids, supplier.default_warehouse_id)
+        warehouse = supplier and supplier.default_warehouse_id or False
+        return self._get_available_supplier_feed_qty(cr, uid, ids, warehouse)
 
     # TODO: find a proper name for this
     def _product_available_supplier_feed_logic(self, cr, uid, ids, context=None):
