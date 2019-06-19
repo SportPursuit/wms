@@ -17,6 +17,8 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 ##############################################################################
+import logging
+
 from collections import Counter
 
 from openerp.osv import orm, fields, osv
@@ -48,6 +50,9 @@ EXPORT_PICKING_PRIORITY = 3
 
 DROPSHIP_SEPARATOR = 'D'
 DROPSHIP_BACKEND = 'Dropship Shipments'
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_bots_picking_ids(cr, uid, ids, ids_skipped, table, not_in_move_states, bots_id_condition, context={}):
@@ -1124,14 +1129,20 @@ def picking_available(session, model_name, record_id, picking_type, location_typ
     bots_warehouse_ids = bots_warehouse_obj.search(session.cr, session.uid, [('warehouse_id', 'in', warehouse_ids)])
     bots_warehouse = bots_warehouse_obj.browse(session.cr, session.uid, bots_warehouse_ids)
     for warehouse in bots_warehouse:
-        backend_id = bots_dropship_backend_id if picking.sp_dropship else warehouse.backend_id
+        try:
+            backend_id = bots_dropship_backend_id if picking.sp_dropship else warehouse.backend_id
 
-        if (picking_type == 'bots.stock.picking.out' and backend_id.feat_picking_out) or \
-            (picking_type == 'bots.stock.picking.in' and backend_id.feat_picking_in):
-            session.create(picking_type,
-                            {'backend_id': backend_id.id,
-                            'openerp_id': picking.id,
-                            'warehouse_id': warehouse['id'],})
+            if (picking_type == 'bots.stock.picking.out' and backend_id.feat_picking_out) \
+                    or (picking_type == 'bots.stock.picking.in' and backend_id.feat_picking_in):
+                session.create(picking_type, {
+                        'backend_id': backend_id.id, 'openerp_id': picking.id, 'warehouse_id': warehouse['id']
+                    }
+                )
+        except Exception as e:
+            logger.exception("Function 'picking_available': Error creating the stock picking "
+                             "'{type}'".format(type=picking_type))
+            raise e
+
 
 def picking_cancel(session, model_name, record_id, picking_type):
     picking_ids = session.search(picking_type, [('openerp_id', '=', record_id)])
