@@ -1140,7 +1140,7 @@ def picking_available(session, model_name, record_id, picking_type, location_typ
                 )
         except Exception as e:
             logger.exception("Function 'picking_available': Error creating the stock picking "
-                             "'{type}'".format(type=picking_type, warehouse=warehouse['id']))
+                             "'{type}'".format(type=picking_type))
             raise e
 
 
