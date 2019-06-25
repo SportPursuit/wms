@@ -82,7 +82,7 @@ class BotsStockWarehouse(orm.Model):
             cutoff = backend_obj._get_cutoff_date(cr, uid, [warehouse.backend_id.id], context=context)
             purchase_ids = purchase_obj.search(cr, uid, [('warehouse_id', '=', warehouse.warehouse_id.id),
                                                          ('id', 'in', all_purchase_ids),
-                                                         ('bots_cut_off', '=', False)
+                                                         ('bots_cut_off', '=', False),
                                                          ('minimum_planned_date', '<=', cutoff)], context=context)
             # Find all linked moves for all purchases
             moves = []
