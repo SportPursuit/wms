@@ -127,7 +127,12 @@ class StockAdapter(BotsCRUDAdapter):
 
                 inventory_id = self.session.create('stock.inventory', inventory_record)
 
-                create_physical_inventory.delay(self.session, supplier, product_list, inventory_id, priority=5)
+                create_physical_inventory.delay(self.session,
+                                                supplier.default_warehouse_id.id,
+                                                supplier.stock_feed_threshold,
+                                                product_list,
+                                                inventory_id,
+                                                priority=5)
 
             for sku, barcode, quantity in product_details.missing_products:
                 # This will assign the id from the last stock inventory created to the missing products created here
@@ -364,16 +369,16 @@ class StockAdapter(BotsCRUDAdapter):
 
 
 @job
-def create_physical_inventory(session, supplier, product_list, inventory_id):
+def create_physical_inventory(session, supplier_warehouse_id, supplier_threshold, product_list, inventory_id):
     warehouse_obj = session.pool.get('stock.warehouse')
-    warehouse_id = warehouse_obj.search(session.cr, SUPERUSER_ID, [('id', '=', supplier.default_warehouse_id.id)])[0]
+    warehouse_id = warehouse_obj.search(session.cr, SUPERUSER_ID, [('id', '=', supplier_warehouse_id)])[0]
     stock_location_id = warehouse_obj.read(session.cr, SUPERUSER_ID, warehouse_id,
                                            ['lot_supplier_feed_id'])['lot_supplier_feed_id'][0]
 
     for product_id, qty in product_list:
 
         # Apply stock feed threshold
-        if supplier.stock_feed_threshold and 0 < qty <= supplier.stock_feed_threshold:
+        if supplier_threshold and 0 < qty <= supplier_threshold:
             qty = 0
 
         logger.info("Creating physical inventory for product {0}, for warehouse {1}, qty {2}".format(product_id, warehouse_id, qty))
