@@ -376,7 +376,7 @@ def create_physical_inventory(session, supplier, product_list, inventory_id):
         if supplier.stock_feed_threshold and 0 < qty <= supplier.stock_feed_threshold:
             qty = 0
 
-        logger.debug("Creating physical inventory for product {0}, for warehouse {1}, qty {2}".format(product_id, warehouse_id, qty))
+        logger.info("Creating physical inventory for product {0}, for warehouse {1}, qty {2}".format(product_id, warehouse_id, qty))
 
         inventory_line_record = {
             'product_uom': 1,
@@ -389,7 +389,9 @@ def create_physical_inventory(session, supplier, product_list, inventory_id):
         session.create('stock.inventory.line', inventory_line_record)
 
     inventory_obj = session.pool['stock.inventory']
+    logger.info("Confirming physical inventory {0} for stock location {1}".format(inventory_id, stock_location_id))
     inventory_obj.action_confirm(session.cr, SUPERUSER_ID, [inventory_id], session.context)
+    logger.info("Setting physical inventory {0} to 'done'".format(inventory_id))
     inventory_obj.action_done(session.cr, SUPERUSER_ID, [inventory_id], session.context)
 
     return inventory_id
