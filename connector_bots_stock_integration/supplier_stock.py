@@ -38,6 +38,12 @@ logger = logging.getLogger(__name__)
 SUPPLIER_STOCK_FEED = 'Supplier Stock Feed'
 
 
+def chunks(l, n):
+    """Yield successive n-sized chunks from a list l."""
+    for i in xrange(0, len(l), n):
+        yield l[i:i + n]
+
+
 class ProductDetails(object):
 
     def __init__(self):
@@ -106,23 +112,38 @@ class StockAdapter(BotsCRUDAdapter):
             with file_to_process(self.session, bots_file_id[0], raise_if_processed=True, filemode='rU') as csv_file:
                 supplier, product_details = self._preprocess_rows(csv_file)
 
-                inventory_id = self._create_physical_inventory(supplier, product_details)
+            today = datetime.strftime(datetime.now(), "%d-%m-%Y")
 
-                for sku, barcode, quantity in product_details.missing_products:
+            i = 0
 
-                    try:
-                        missing_product = {
-                            'filename': filename,
-                            'inventory_id': inventory_id,
-                            'supplier_id': supplier.id,
-                            'product_sku': sku,
-                            'product_barcode': barcode,
-                            'quantity': quantity
-                        }
-                        missing_products_obj.create(self.session.cr, self.session.uid, missing_product)
+            for product_list in chunks(product_details.products.items(), 500):
 
-                    except Exception:
-                        logger.exception('Failed to add missing product. %s : %s %s' % (filename, sku, barcode))
+                i += 1
+
+                inventory_record = {
+                    'state': 'draft',
+                    'name': 'Stock Integration Update %s - %s : %s' % (i, supplier.name, today)
+                }
+
+                inventory_id = self.session.create('stock.inventory', inventory_record)
+
+                create_physical_inventory.delay(self.session, supplier, product_list, inventory_id, priority=5)
+
+            for sku, barcode, quantity in product_details.missing_products:
+                # This will assign the id from the last stock inventory created to the missing products created here
+                try:
+                    missing_product = {
+                        'filename': filename,
+                        'inventory_id': inventory_id,
+                        'supplier_id': supplier.id,
+                        'product_sku': sku,
+                        'product_barcode': barcode,
+                        'quantity': quantity
+                    }
+                    missing_products_obj.create(self.session.cr, self.session.uid, missing_product)
+
+                except Exception:
+                    logger.exception('Failed to add missing product. %s : %s %s' % (filename, sku, barcode))
 
         else:
             raise Exception('No bots_file entry found for file %s' % filename)
@@ -325,45 +346,6 @@ class StockAdapter(BotsCRUDAdapter):
     # This is copy-pasted and modified from sp_backorder_limt SportPursuitBackorderProductImport in the interest
     # of getting this released sooner rather than later.
 
-    def _create_physical_inventory(self, supplier, product_details):
-        warehouse_obj = self.session.pool.get('stock.warehouse')
-        warehouse_id = warehouse_obj.search(self.session.cr, SUPERUSER_ID, [('id', '=', supplier.default_warehouse_id.id)])[0]
-        stock_location_id = warehouse_obj.read(self.session.cr, SUPERUSER_ID, warehouse_id,
-                                               ['lot_supplier_feed_id'])['lot_supplier_feed_id'][0]
-
-        today = datetime.strftime(datetime.now(), "%d-%m-%Y")
-
-        inventory_record = {
-            'state': 'draft',
-            'name': 'Stock Integration Update - %s : %s' % (supplier.name, today)
-        }
-
-        inventory_id = self.session.create('stock.inventory', inventory_record)
-
-        for product_id, qty in product_details.products.iteritems():
-
-            # Apply stock feed threshold
-            if supplier.stock_feed_threshold and 0 < qty <= supplier.stock_feed_threshold:
-                qty = 0
-
-            logger.debug("Creating physical inventory for product {0}, for warehouse {1}, qty {2}".format(product_id, warehouse_id, qty))
-
-            inventory_line_record = {
-                'product_uom': 1,
-                'product_id': product_id,
-                'location_id': stock_location_id,
-                'inventory_id': inventory_id,
-                'product_qty': qty
-            }
-
-            self.session.create('stock.inventory.line', inventory_line_record)
-
-        inventory_obj = self.session.pool['stock.inventory']
-        inventory_obj.action_confirm(self.session.cr, SUPERUSER_ID, [inventory_id], self.session.context)
-        inventory_obj.action_done(self.session.cr, SUPERUSER_ID, [inventory_id], self.session.context)
-
-        return inventory_id
-
     def _get_main_product_supplier_id(self, product):
         """Modified method from addons/product/product.py.
         Reason: it returns incorrect supplier.
@@ -379,6 +361,38 @@ class StockAdapter(BotsCRUDAdapter):
 
         main_supplier = sellers and sellers[0][1]
         return main_supplier and main_supplier.name.id
+
+
+@job
+def create_physical_inventory(session, supplier, product_list, inventory_id):
+    warehouse_obj = session.pool.get('stock.warehouse')
+    warehouse_id = warehouse_obj.search(session.cr, SUPERUSER_ID, [('id', '=', supplier.default_warehouse_id.id)])[0]
+    stock_location_id = warehouse_obj.read(session.cr, SUPERUSER_ID, warehouse_id,
+                                           ['lot_supplier_feed_id'])['lot_supplier_feed_id'][0]
+
+    for product_id, qty in product_list:
+
+        # Apply stock feed threshold
+        if supplier.stock_feed_threshold and 0 < qty <= supplier.stock_feed_threshold:
+            qty = 0
+
+        logger.debug("Creating physical inventory for product {0}, for warehouse {1}, qty {2}".format(product_id, warehouse_id, qty))
+
+        inventory_line_record = {
+            'product_uom': 1,
+            'product_id': product_id,
+            'location_id': stock_location_id,
+            'inventory_id': inventory_id,
+            'product_qty': qty
+        }
+
+        session.create('stock.inventory.line', inventory_line_record)
+
+    inventory_obj = session.pool['stock.inventory']
+    inventory_obj.action_confirm(session.cr, SUPERUSER_ID, [inventory_id], session.context)
+    inventory_obj.action_done(session.cr, SUPERUSER_ID, [inventory_id], session.context)
+
+    return inventory_id
 
 
 @job
