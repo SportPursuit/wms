@@ -111,6 +111,8 @@ class StockAdapter(BotsCRUDAdapter):
 
             with file_to_process(self.session, bots_file_id[0], raise_if_processed=True, filemode='rU') as csv_file:
                 supplier, product_details = self._preprocess_rows(csv_file)
+                supplier_warehouse_id = supplier.default_warehouse_id.id
+                supplier_threshold = supplier.stock_feed_threshold
 
             today = datetime.strftime(datetime.now(), "%d-%m-%Y")
 
@@ -128,8 +130,8 @@ class StockAdapter(BotsCRUDAdapter):
                 inventory_id = self.session.create('stock.inventory', inventory_record)
 
                 create_physical_inventory.delay(self.session,
-                                                supplier.default_warehouse_id.id,
-                                                supplier.stock_feed_threshold,
+                                                supplier_warehouse_id,
+                                                supplier_threshold,
                                                 product_list,
                                                 inventory_id,
                                                 priority=5)
@@ -399,7 +401,7 @@ def create_physical_inventory(session, supplier_warehouse_id, supplier_threshold
     logger.info("Setting physical inventory {0} to 'done'".format(inventory_id))
     inventory_obj.action_done(session.cr, SUPERUSER_ID, [inventory_id], session.context)
 
-    return inventory_id
+    return True
 
 
 @job
