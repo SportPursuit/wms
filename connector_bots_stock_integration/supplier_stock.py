@@ -110,15 +110,10 @@ class StockAdapter(BotsCRUDAdapter):
 
             today = datetime.strftime(datetime.now(), "%d-%m-%Y")
 
-            products_original = product_details.products.items()
-            logger.info("The length of product items is: {0}".format(len(products_original)))
-
             i = 0
             n = 5000
             product_items = product_details.products.items()
             chunks_list = [product_items[i * n:(i + 1) * n] for i in range((len(product_items) + n - 1) // n)]
-
-            logger.info("The length of chunks list is {0}".format(len(chunks_list)))
 
             for product_list in chunks_list:
 
@@ -135,8 +130,7 @@ class StockAdapter(BotsCRUDAdapter):
                                                 supplier_warehouse_id,
                                                 supplier_threshold,
                                                 product_list,
-                                                inventory_id,
-                                                priority=5)
+                                                inventory_id)
 
             for sku, barcode, quantity in product_details.missing_products:
                 # This will assign the id from the last stock inventory created to the missing products created here
