@@ -111,7 +111,7 @@ class StockAdapter(BotsCRUDAdapter):
             today = datetime.strftime(datetime.now(), "%d-%m-%Y")
 
             products_original = product_details.products.items()
-            logger.onfo("The length of product items is: {0}".format(len(products_original)))
+            logger.info("The length of product items is: {0}".format(len(products_original)))
 
             i = 0
             n = 5000
