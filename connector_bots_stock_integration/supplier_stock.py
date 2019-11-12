@@ -38,12 +38,6 @@ logger = logging.getLogger(__name__)
 SUPPLIER_STOCK_FEED = 'Supplier Stock Feed'
 
 
-def chunks(l, n):
-    """Yield successive n-sized chunks from a list l."""
-    for i in xrange(0, len(l), n):
-        yield l[i:i + n]
-
-
 class ProductDetails(object):
 
     def __init__(self):
@@ -117,8 +111,11 @@ class StockAdapter(BotsCRUDAdapter):
             today = datetime.strftime(datetime.now(), "%d-%m-%Y")
 
             i = 0
+            n = 5000
+            product_items = product_details.products.items()
+            chunks_list = [product_items[i * n:(i + 1) * n] for i in range((len(product_items) + n - 1) // n)]
 
-            for product_list in chunks(product_details.products.items(), 500):
+            for product_list in chunks_list:
 
                 i += 1
 
