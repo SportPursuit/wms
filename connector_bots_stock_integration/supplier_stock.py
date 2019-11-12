@@ -110,10 +110,15 @@ class StockAdapter(BotsCRUDAdapter):
 
             today = datetime.strftime(datetime.now(), "%d-%m-%Y")
 
+            products_original = product_details.products.items()
+            logger.onfo("The length of product items is: {0}".format(len(products_original)))
+
             i = 0
             n = 5000
             product_items = product_details.products.items()
             chunks_list = [product_items[i * n:(i + 1) * n] for i in range((len(product_items) + n - 1) // n)]
+
+            logger.info("The length of chunks list is {0}".format(len(chunks_list)))
 
             for product_list in chunks_list:
 
