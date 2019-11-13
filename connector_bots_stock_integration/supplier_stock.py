@@ -110,27 +110,28 @@ class StockAdapter(BotsCRUDAdapter):
 
             today = datetime.strftime(datetime.now(), "%d-%m-%Y")
 
-            i = 0
+            index = 0
             n = 5000
             product_items = product_details.products.items()
             chunks_list = [product_items[i * n:(i + 1) * n] for i in range((len(product_items) + n - 1) // n)]
 
             for product_list in chunks_list:
 
-                i += 1
+                index += 1
 
                 inventory_record = {
                     'state': 'draft',
-                    'name': 'Stock Integration Update %s - %s : %s' % (i, supplier.name, today)
+                    'name': 'Stock Integration Update %s - %s : %s' % (index, supplier.name, today)
                 }
 
                 inventory_id = self.session.create('stock.inventory', inventory_record)
 
-                create_physical_inventory.delay(self.session,
-                                                supplier_warehouse_id,
-                                                supplier_threshold,
-                                                product_list,
-                                                inventory_id)
+                confirm_physical_inventory.delay(self.session,
+                                                 'stock.inventory',
+                                                 supplier_warehouse_id,
+                                                 supplier_threshold,
+                                                 product_list,
+                                                 inventory_id)
 
             for sku, barcode, quantity in product_details.missing_products:
                 # This will assign the id from the last stock inventory created to the missing products created here
@@ -367,7 +368,7 @@ class StockAdapter(BotsCRUDAdapter):
 
 
 @job
-def create_physical_inventory(session, supplier_warehouse_id, supplier_threshold, product_list, inventory_id):
+def confirm_physical_inventory(session, model_name, supplier_warehouse_id, supplier_threshold, product_list, inventory_id):
     warehouse_obj = session.pool.get('stock.warehouse')
     warehouse_id = warehouse_obj.search(session.cr, SUPERUSER_ID, [('id', '=', supplier_warehouse_id)])[0]
     stock_location_id = warehouse_obj.read(session.cr, SUPERUSER_ID, warehouse_id,
@@ -391,7 +392,7 @@ def create_physical_inventory(session, supplier_warehouse_id, supplier_threshold
 
         session.create('stock.inventory.line', inventory_line_record)
 
-    inventory_obj = session.pool['stock.inventory']
+    inventory_obj = session.pool[model_name]
     logger.info("Confirming physical inventory {0} for stock location {1}".format(inventory_id, stock_location_id))
     inventory_obj.action_confirm(session.cr, SUPERUSER_ID, [inventory_id], session.context)
     logger.info("Setting physical inventory {0} to 'done'".format(inventory_id))
