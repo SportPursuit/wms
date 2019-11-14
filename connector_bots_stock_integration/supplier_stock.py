@@ -188,6 +188,9 @@ class StockAdapter(BotsCRUDAdapter):
 
         for row in rows:
 
+            logger.info("Product row:")
+            logger.info(row)
+
             barcode = row['SUPPLIER_BARCODE'].strip()
             sku = row['SKU'].strip()
             qty = row['QUANTITY']
@@ -216,6 +219,7 @@ class StockAdapter(BotsCRUDAdapter):
 
                 if qty >= 0:
                     product_details.products[product_id] = qty
+                    logger.info("Setting product {0} to qty {1}".format(product_id, qty))
                 else:
                     product_details.invalid_quantity_values.append('%s %s' % (identifier, qty))
 
