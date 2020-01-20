@@ -680,9 +680,15 @@ class WarehouseAdapter(BotsCRUDAdapter):
                     _cr, self.session.uid, picking, delivered_picking, context=ctx
                 )
                 if tracking_saved:
-                    export_tracking_number.delay(
-                        self.session, 'magento.stock.picking.out', delivered_picking.magento_bind_ids[0].id
-                    )
+                    try:
+                        export_tracking_number.delay(
+                            self.session, 'magento.stock.picking.out', delivered_picking.magento_bind_ids[0].id
+                        )
+                    except IndexError as exc:
+                        if openerp_id.sale_id.shop_id.external_subchannel_id:
+                            continue
+                        else:
+                            raise exc
 
                 # TODO: Handle various opperations for extra stock (Additional done incoming for PO handled above)
                 if moves_extra:
