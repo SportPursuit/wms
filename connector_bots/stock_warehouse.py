@@ -685,7 +685,9 @@ class WarehouseAdapter(BotsCRUDAdapter):
                             self.session, 'magento.stock.picking.out', delivered_picking.magento_bind_ids[0].id
                         )
                     except IndexError as exc:
-                        if not openerp_id.sale_id.shop_id.external_subchannel_id:
+                        # If the order has not come from Magento,
+                        # behaviour to update magento is overriden, as the order will have originated elsewhere
+                        if openerp_id.sale_id.magento_state != "Not a Magento order":
                             raise exc
 
                 # TODO: Handle various operations for extra stock (Additional done incoming for PO handled above)
