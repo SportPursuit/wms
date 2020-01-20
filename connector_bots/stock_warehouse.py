@@ -685,12 +685,10 @@ class WarehouseAdapter(BotsCRUDAdapter):
                             self.session, 'magento.stock.picking.out', delivered_picking.magento_bind_ids[0].id
                         )
                     except IndexError as exc:
-                        if openerp_id.sale_id.shop_id.external_subchannel_id:
-                            continue
-                        else:
+                        if not openerp_id.sale_id.shop_id.external_subchannel_id:
                             raise exc
 
-                # TODO: Handle various opperations for extra stock (Additional done incoming for PO handled above)
+                # TODO: Handle various operations for extra stock (Additional done incoming for PO handled above)
                 if moves_extra:
                     raise NotImplementedError(
                         "Unable to process unexpected stock for %s: %s" % (picking['id'], moves_extra,))
