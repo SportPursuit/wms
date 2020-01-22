@@ -680,11 +680,17 @@ class WarehouseAdapter(BotsCRUDAdapter):
                     _cr, self.session.uid, picking, delivered_picking, context=ctx
                 )
                 if tracking_saved:
-                    export_tracking_number.delay(
-                        self.session, 'magento.stock.picking.out', delivered_picking.magento_bind_ids[0].id
-                    )
+                    try:
+                        export_tracking_number.delay(
+                            self.session, 'magento.stock.picking.out', delivered_picking.magento_bind_ids[0].id
+                        )
+                    except IndexError as exc:
+                        # If the order has not come from Magento,
+                        # behaviour to update magento is overriden, as the order will have originated elsewhere
+                        if openerp_id.sale_id.magento_state != "Not a Magento order":
+                            raise exc
 
-                # TODO: Handle various opperations for extra stock (Additional done incoming for PO handled above)
+                # TODO: Handle various operations for extra stock (Additional done incoming for PO handled above)
                 if moves_extra:
                     raise NotImplementedError(
                         "Unable to process unexpected stock for %s: %s" % (picking['id'], moves_extra,))
