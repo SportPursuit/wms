@@ -728,6 +728,7 @@ class StockPickingAdapter(BotsCRUDAdapter):
         else:
             raise NotImplementedError('Unable to adapt stock picking of type %s' % (self._picking_type,))
 
+        po_binder = self.get_binder_for_model('bots.stock.picking.in')
         product_binder = self.get_binder_for_model('bots.product')
         picking_binder = self.get_binder_for_model(MODEL)
         bots_picking_obj = self.session.pool.get(MODEL)
@@ -813,7 +814,7 @@ class StockPickingAdapter(BotsCRUDAdapter):
                     sale_order_line = move.sale_parent_line_id
                     price_unit = sale_order_line.price_unit
                     bundle = True
-                
+
                 currency = move.sale_line_id.order_id.currency_id
                 discount = move.sale_line_id.discount
                 tax_id = move.sale_line_id.tax_id
@@ -869,11 +870,34 @@ class StockPickingAdapter(BotsCRUDAdapter):
             precision = dp.get_precision('bots')(self.session.cr)
             precision = precision and precision[1] or 2
 
+            po_name = ""
+
+            if move.state in ('waiting', 'confirmed', 'assigned',):
+
+                pol_ids = purchase_line_obj.search(self.session.cr, self.session.uid, [('move_dest_id', '=', move.id),
+                                                                                       ('state', '!=', 'cancel'),
+                                                                                       ('order_id.state', '!=', 'cancel'),
+                                                                                       ('product_id', '=', move.product_id.id)], context=self.session.context)
+                if len(pol_ids) > 1:
+                    raise MappingError(_('Unable to export cross-dock details for a move which is incorrectly linked to multiple purchases %s.') % (move.id,))
+                elif len(pol_ids) == 1:
+                    move_ids = move_obj.search(self.session.cr, self.session.uid, [('move_dest_id', '=', move.id),
+                                                                                   ('purchase_line_id', '=', pol_ids[0]),
+                                                                                   ('state', '!=', 'cancel')], context=self.session.context)
+                    if move_ids:
+                        move_po = move_obj.browse(self.session.cr, self.session.uid, move_ids[0], self.session.context)
+                        # We cannot cross-dock a PO which has already been received into the warehouse, eg "deliver at once" stock
+                        if move_po.picking_id and not move_po.state == 'done':
+                            po_name = po_binder.to_backend(move_po.picking_id.id, wrap=True) or ""
+                            if not po_name:
+                                raise NoExternalId("No PO ID found, try again later")
+
             order_line = {
                     "id": "%sS%s" % (bots_id, seq),
                     "seq": seq,
                     "move_id": move.id,
                     "product": product_bots_id,
+                    "purchase_id": po_name,
                     "product_supplier_sku": product_supplier_sku,
                     "product_qty": int(move.product_qty),
                     "ordered_qty": int(ordered_qty),
