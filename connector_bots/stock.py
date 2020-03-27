@@ -728,6 +728,7 @@ class StockPickingAdapter(BotsCRUDAdapter):
         else:
             raise NotImplementedError('Unable to adapt stock picking of type %s' % (self._picking_type,))
 
+        purchase_line_obj = self.session.pool.get('purchase.order.line')
         po_binder = self.get_binder_for_model('bots.stock.picking.in')
         product_binder = self.get_binder_for_model('bots.product')
         picking_binder = self.get_binder_for_model(MODEL)
