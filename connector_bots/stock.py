@@ -898,7 +898,7 @@ class StockPickingAdapter(BotsCRUDAdapter):
                     "seq": seq,
                     "move_id": move.id,
                     "product": product_bots_id,
-                    "purchase_id": po_name,
+                    "po_number": po_name,
                     "product_supplier_sku": product_supplier_sku,
                     "product_qty": int(move.product_qty),
                     "ordered_qty": int(ordered_qty),
