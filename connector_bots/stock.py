@@ -965,27 +965,6 @@ class StockPickingAdapter(BotsCRUDAdapter):
             "language": picking.partner_id.lang or '',
         }
 
-        billing_data = {}
-        if TYPE == 'out' and picking.sale_id and picking.sale_id.partner_invoice_id:
-            billing_data = {
-                "id": "P%d" % (picking.sale_id.partner_invoice_id.id),
-                "code": picking.sale_id.partner_invoice_id.ref or '',
-                "title": picking.sale_id.partner_invoice_id.title and picking.sale_id.partner_invoice_id.title.name or '',
-                "jobtitle": picking.sale_id.partner_invoice_id.function or '',
-                "company": picking.sale_id.partner_invoice_id.company or '',
-                "name": picking.sale_id.partner_invoice_id.name or '',
-                "street1": picking.sale_id.partner_invoice_id.street or '',
-                "street2": picking.sale_id.partner_invoice_id.street2 or '',
-                "city": picking.sale_id.partner_invoice_id.city or '',
-                "zip": picking.sale_id.partner_invoice_id.zip or '',
-                "country": picking.sale_id.partner_invoice_id.country_id and picking.sale_id.partner_invoice_id.country_id.code or '',
-                "state": picking.sale_id.partner_invoice_id.state_id and picking.sale_id.partner_invoice_id.state_id.name or '',
-                "phone": picking.sale_id.partner_invoice_id.phone or '',
-                "fax": picking.sale_id.partner_invoice_id.fax or '',
-                "email": picking.sale_id.partner_invoice_id.email or '',
-                "language": picking.sale_id.partner_invoice_id.lang or '',
-            }
-
         picking_data = {
                 'id': bots_id,
                 'name': order_number,
@@ -1001,8 +980,6 @@ class StockPickingAdapter(BotsCRUDAdapter):
                 'order_date': TYPE == 'out' and picking.sale_id and picking.sale_id.date_order or '',
                 'line': order_lines,
             }
-        if billing_data:
-            picking_data['partner_bill'] = billing_data
 
         if picking.note:
             picking_data['desc'] = picking.note and picking.note[:64]
