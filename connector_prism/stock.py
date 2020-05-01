@@ -35,23 +35,6 @@ from openerp.addons.connector_bots.stock import (StockPickingOutAdapter, StockPi
 logger = logging.getLogger(__name__)
 
 
-@job
-def export_picking_crossdock(session, model_name, record_id):
-    try:
-        picking = session.browse(model_name, record_id)
-        if picking.state == 'done' and session.search(model_name, [('backorder_id', '=', picking.openerp_id.id)]):
-            # We are an auto-created back order completed - ignore this export
-            return "Not exporting crossdock for auto-created done picking backorder %s" % (picking.name,)
-        backend_id = picking.backend_id.id
-        env = get_environment(session, model_name, backend_id)
-        picking_exporter = env.get_connector_unit(BotsPickingExport)
-        res = picking_exporter.run_crossdock(record_id)
-    except IntegrityError, e:
-        raise RetryableJobError("IntegrityError raised, retrying. | Error: %s" % e)
-
-    return res
-
-
 @bots(replacing=StockPickingInAdapter)
 class PrismPickingInAdapter(StockPickingInAdapter):
     _picking_type = None
@@ -90,89 +73,6 @@ class PrismPickingOutAdapter(StockPickingOutAdapter):
 
         return data, FILENAME, bots_id
 
-    def create(self, picking_id):
-        res = super(PrismPickingOutAdapter, self).create(picking_id)
-        picking = self.session.browse('bots.stock.picking.out', picking_id)
-        if picking.backend_id.feat_picking_out_crossdock and picking.type == 'out':
-            export_picking_crossdock.delay(self.session, 'bots.stock.picking.out', picking_id, priority=3)
-        return res
-
-    def _prepare_crossdock(self, picking_id):
-        picking_binder = self.get_binder_for_model('bots.stock.picking.in')
-        bots_picking_obj = self.session.pool.get('bots.stock.picking.out')
-        move_obj = self.session.pool.get('stock.move')
-        purchase_line_obj = self.session.pool.get('purchase.order.line')
-
-        picking = bots_picking_obj.browse(self.session.cr, self.session.uid, picking_id)
-
-        if not picking.bots_id:
-            raise JobError(_('The Bots picking %s is not exported. A join file cannot be exported for it.') % (picking.id,))
-
-        order_lines = []
-        for move in picking.move_lines:
-
-            try:
-                po = move.sale_line_id.procurement_id.purchase_id
-
-                if po and po.sp_dropship:
-                    logger.warning('Skipping dropship item %s', move.product_id.default_code)
-                    continue
-            except Exception:
-                logger.exception('Error occurred trying to skip dropship items')
-
-            if move.state not in ('waiting', 'confirmed', 'assigned',):
-                raise MappingError(_('Unable to export cross-dock details for a move which is in state %s.') % (move.state,))
-
-            po_name = ""
-            pol_ids = purchase_line_obj.search(self.session.cr, self.session.uid, [('move_dest_id', '=', move.id),
-                                                                                   ('state', '!=', 'cancel'),
-                                                                                   ('order_id.state', '!=', 'cancel'),
-                                                                                   ('product_id', '=', move.product_id.id)], context=self.session.context)
-            if len(pol_ids) > 1:
-                raise MappingError(_('Unable to export cross-dock details for a move which is incorrectly linked to multiple purchases %s.') % (move.id,))
-            elif len(pol_ids) == 1:
-                move_ids = move_obj.search(self.session.cr, self.session.uid, [('move_dest_id', '=', move.id),
-                                                                               ('purchase_line_id', '=', pol_ids[0]),
-                                                                               ('state', '!=', 'cancel')], context=self.session.context)
-                if move_ids:
-                    move_po = move_obj.browse(self.session.cr, self.session.uid, move_ids[0], self.session.context)
-                    # We cannot cross-dock a PO which has already been received into the warehouse, eg "deliver at once" stock
-                    if move_po.picking_id and not move_po.state == 'done':
-                        po_name = picking_binder.to_backend(move_po.picking_id.id, wrap=True) or ""
-                        if not po_name:
-                            raise NoExternalId("No PO ID found, try again later")
-
-            order_line = {
-                    "move_id": move.id,
-                    "product_qty": int(move.product_qty),
-                    "po_id": po_name,
-                }
-            order_lines.append(order_line)
-
-        if not order_lines:
-            raise MappingError(_('Unable to export any cross dock lines on export of Bots picking %s.') % (picking_id,))
-
-        data = {
-                'crossdock': {
-                        'crossdock_line': order_lines,
-                        'header': [{
-                                'partner_to': picking.backend_id.name_to,
-                                'partner_from': picking.backend_id.name_from,
-                                'message_id': '0',
-                                'date_msg': datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f'),
-                            }],
-                    },
-                }
-        PREFIX = 'cross_dock_%s' % picking_id
-        FILENAME = PREFIX + '_%s.json'
-        return data, FILENAME
-
-    def create_crossdock(self, picking_id):
-        data, FILENAME = self._prepare_crossdock(picking_id)
-        data = json.dumps(data, indent=4)
-        filename_id = self._get_unique_filename(FILENAME)
-        res = self._write(filename_id, data)
-        return
 
 @bots(replacing=BotsPickingExport)
 class PrismBotsPickingExport(BotsPickingExport):
@@ -191,8 +91,3 @@ class PrismBotsPickingExport(BotsPickingExport):
         # Else create a new binding
         return super(PrismBotsPickingExport, self).run(binding_id)
 
-    def run_crossdock(self, binding_id):
-        """
-        Export the picking crossdock to Bots
-        """
-        self.backend_adapter.create_crossdock(binding_id)
