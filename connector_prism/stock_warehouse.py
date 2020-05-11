@@ -81,11 +81,14 @@ class BotsStockWarehouse(orm.Model):
         _logger.info('Warehouse ids: %s' % (ids,))
 
         for warehouse in self.browse(cr, uid, ids, context=context):
+            _logger.info('Warehouse name: %s' % (warehouse.name,))
             cutoff = backend_obj._get_cutoff_date(cr, uid, [warehouse.backend_id.id], context=context)
+            _logger.info('Cutoff: %s' % (cutoff,))
             purchase_ids = purchase_obj.search(cr, uid, [('warehouse_id', '=', warehouse.warehouse_id.id),
                                                          ('id', 'in', all_purchase_ids),
                                                          ('bots_cut_off', '=', False),
                                                          ('minimum_planned_date', '<=', cutoff)], context=context)
+            _logger.info('Purchase ids: %s' % (purchase_ids,))
             # Find all linked moves for all purchases
             moves = []
             for purchase in purchase_obj.browse(cr, uid, purchase_ids, context=context):
