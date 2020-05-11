@@ -78,6 +78,8 @@ class BotsStockWarehouse(orm.Model):
         procurement_obj = self.pool.get('procurement.order')
         backend_obj = self.pool.get('bots.backend')
 
+        _logger.info('Warehouse ids: %s' % (ids,))
+
         for warehouse in self.browse(cr, uid, ids, context=context):
             cutoff = backend_obj._get_cutoff_date(cr, uid, [warehouse.backend_id.id], context=context)
             purchase_ids = purchase_obj.search(cr, uid, [('warehouse_id', '=', warehouse.warehouse_id.id),
