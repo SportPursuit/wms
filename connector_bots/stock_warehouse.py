@@ -101,11 +101,17 @@ class BotsStockInventoryBinder(BotsModelBinder):
 class BotsWarehouseImport(ImportSynchronizer):
     _model_name = ['bots.warehouse']
 
-    def import_picking_confirmation(self, picking_types=('in', 'out'), new_cr=True):
+    def import_picking_confirmation(self, model_name, record_id, picking_types=('in', 'out'), new_cr=True):
         """
         Import the picking confirmation from Bots
         """
-        self.backend_adapter.get_picking_conf(picking_types, new_cr=new_cr)
+        self.backend_adapter.get_picking_conf(model_name, record_id, picking_types, new_cr=new_cr)
+
+    def import_picking_file(self, picking_types=('in', 'out'), file_data=None):
+        """
+        Import the picking confirmation from Bots
+        """
+        self.backend_adapter.process_data(picking_types, file_data)
 
     def import_stock_levels(self, warehouse_id, new_cr=True):
         """
@@ -434,7 +440,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
         return main_picking
 
-    def get_picking_conf(self, picking_types, new_cr=True):
+    def get_picking_conf(self,model_name, record_id,  picking_types, new_cr=True):
 
         exceptions = []
 
@@ -445,7 +451,8 @@ class WarehouseAdapter(BotsCRUDAdapter):
         for file_id in file_ids:
             try:
                 with file_to_process(self.session, file_id[0], new_cr=new_cr) as f:
-                    self.process_data(picking_types, json.load(f))
+                    file_data = json.load(f)
+                import_picking_file.delay(self.session, model_name, record_id, picking_types, file_data=file_data)
 
             except OperationalError, e:
                 # file_lock_msg suggests that another job is already handling these files,
@@ -814,11 +821,22 @@ def import_stock_levels(session, model_name, record_id, new_cr=True):
     warehouse_importer.import_stock_levels(record_id, new_cr=new_cr)
     return True
 
+
 @job
 def import_picking_confirmation(session, model_name, record_id, picking_types, new_cr=True):
     warehouse = session.browse(model_name, record_id)
     backend_id = warehouse.backend_id.id
     env = get_environment(session, model_name, backend_id)
     warehouse_importer = env.get_connector_unit(BotsWarehouseImport)
-    warehouse_importer.import_picking_confirmation(picking_types=picking_types, new_cr=new_cr)
+    warehouse_importer.import_picking_confirmation(model_name, record_id, picking_types=picking_types, new_cr=new_cr)
+    return True
+
+
+@job
+def import_picking_file(session, model_name, record_id, picking_types, file_data=None):
+    warehouse = session.browse(model_name, record_id)
+    backend_id = warehouse.backend_id.id
+    env = get_environment(session, model_name, backend_id)
+    warehouse_importer = env.get_connector_unit(BotsWarehouseImport)
+    warehouse_importer.import_picking_file(picking_types=picking_types, file_data=file_data)
     return True
