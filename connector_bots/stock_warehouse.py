@@ -440,7 +440,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
         return main_picking
 
-    def get_picking_conf(self,model_name, record_id,  picking_types, new_cr=True):
+    def get_picking_conf(self, model_name, record_id,  picking_types, new_cr=True):
 
         exceptions = []
 
