@@ -40,7 +40,7 @@ from datetime import datetime
 
 from psycopg2 import OperationalError
 
-file_lock_msg = 'could not obtain lock on row in relation "bots_file"'
+FILE_LOCK_MSG = 'could not obtain lock on row in relation "bots_file"'
 
 NOT_TRACKED = 'NOT_TRACKED'
 BLANK_LABEL = 'BL'
@@ -455,9 +455,9 @@ class WarehouseAdapter(BotsCRUDAdapter):
                 import_picking_file.delay(self.session, model_name, record_id, picking_types, file_data=file_data)
 
             except OperationalError, e:
-                # file_lock_msg suggests that another job is already handling these files,
+                # FILE_LOCK_MSG suggests that another job is already handling these files,
                 # so it is safe to continue without any further action.
-                if e.message and file_lock_msg in e.message:
+                if e.message and FILE_LOCK_MSG in e.message:
                     exception = "Exception %s when processing file %s: %s" % (e, file_id[1], traceback.format_exc())
                     exceptions.append(exception)
             except Exception, e:
@@ -795,9 +795,9 @@ class WarehouseAdapter(BotsCRUDAdapter):
                             add_checkpoint(_session, 'stock.inventory', inventory_id, self.backend_record.id)
 
             except OperationalError, e:
-                # file_lock_msg suggests that another job is already handling these files,
+                # FILE_LOCK_MSG suggests that another job is already handling these files,
                 # so it is safe to continue without any further action.
-                if e.message and file_lock_msg in e.message:
+                if e.message and FILE_LOCK_MSG in e.message:
                     exception = "Exception %s when processing file %s: %s" % (e, file_id[1], traceback.format_exc())
                     exceptions.append(exception)
             except Exception, e:
