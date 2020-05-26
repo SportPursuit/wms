@@ -18,6 +18,8 @@
 #
 ##############################################################################
 
+import logging
+
 from openerp.osv import orm, fields, osv
 from openerp import pooler, netsvc, SUPERUSER_ID
 from openerp.tools.translate import _
@@ -39,6 +41,8 @@ import traceback
 from datetime import datetime
 
 from psycopg2 import OperationalError
+
+logger = logging.getLogger(__name__)
 
 FILE_LOCK_MSG = 'could not obtain lock on row in relation "bots_file"'
 
@@ -452,7 +456,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
             try:
                 with file_to_process(self.session, file_id[0], new_cr=new_cr) as f:
                     file_data = json.load(f)
-                import_picking_file.delay(self.session, model_name, record_id, picking_types, file_data=file_data)
+                import_picking_file.delay(self.session, model_name, record_id, picking_types, bots_file_id=file_id[0], file_data=file_data)
 
             except OperationalError, e:
                 # FILE_LOCK_MSG suggests that another job is already handling these files,
@@ -833,7 +837,8 @@ def import_picking_confirmation(session, model_name, record_id, picking_types, n
 
 
 @job
-def import_picking_file(session, model_name, record_id, picking_types, file_data=None):
+def import_picking_file(session, model_name, record_id, picking_types, bots_file_id=None, file_data=None):
+    _logger.info('Beginning import for bots file with id %s', bots_file_id)
     warehouse = session.browse(model_name, record_id)
     backend_id = warehouse.backend_id.id
     env = get_environment(session, model_name, backend_id)
