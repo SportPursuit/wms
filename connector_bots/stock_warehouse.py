@@ -838,7 +838,7 @@ def import_picking_confirmation(session, model_name, record_id, picking_types, n
 
 @job
 def import_picking_file(session, model_name, record_id, picking_types, bots_file_id=None, file_data=None):
-    _logger.info('Beginning import for bots file with id %s', bots_file_id)
+    logger.info('Beginning import for bots file with id %s', bots_file_id)
     warehouse = session.browse(model_name, record_id)
     backend_id = warehouse.backend_id.id
     env = get_environment(session, model_name, backend_id)
