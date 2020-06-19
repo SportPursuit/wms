@@ -688,7 +688,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                         # If the order has not come from Magento,
                         # behaviour to update magento is overriden, as the order will have originated elsewhere
                         if openerp_id.sale_id.magento_state != "Not a Magento order":
-                            raise IndexError('Picking %s has no corresponding magento bind ids' % (stock_picking.name,))
+                            raise IndexError('Picking %s has no corresponding magento bind ids' % (delivered_picking.name,))
 
                 # TODO: Handle various operations for extra stock (Additional done incoming for PO handled above)
                 if moves_extra:
