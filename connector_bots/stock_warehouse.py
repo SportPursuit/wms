@@ -684,11 +684,11 @@ class WarehouseAdapter(BotsCRUDAdapter):
                         export_tracking_number.delay(
                             self.session, 'magento.stock.picking.out', delivered_picking.magento_bind_ids[0].id
                         )
-                    except IndexError as exc:
+                    except IndexError:
                         # If the order has not come from Magento,
                         # behaviour to update magento is overriden, as the order will have originated elsewhere
                         if openerp_id.sale_id.magento_state != "Not a Magento order":
-                            raise exc
+                            raise IndexError('Picking %s has no corresponding magento bind ids' % (stock_picking.name,))
 
                 # TODO: Handle various operations for extra stock (Additional done incoming for PO handled above)
                 if moves_extra:
