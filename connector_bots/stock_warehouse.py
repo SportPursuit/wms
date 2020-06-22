@@ -18,6 +18,8 @@
 #
 ##############################################################################
 
+import logging
+
 from openerp.osv import orm, fields, osv
 from openerp import pooler, netsvc, SUPERUSER_ID
 from openerp.tools.translate import _
@@ -39,6 +41,8 @@ import traceback
 from datetime import datetime
 
 from psycopg2 import OperationalError
+
+logger = logging.getLogger(__name__)
 
 file_lock_msg = 'could not obtain lock on row in relation "bots_file"'
 
@@ -123,6 +127,8 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
         old_backorder_id = stock_picking.backorder_id and stock_picking.backorder_id.id or False
         moves_to_ship = {}
+        query_move_ids = prod_confirm.keys()
+        logger.info('Selecting stock move, picking, order, PO and pricelist info for stock moves %s', query_move_ids)
         cr.execute("""
             select
                 sm.id "id", sm.product_id "product_id", sm.product_uom "product_uom", sm.prodlot_id "prodlot_id",
@@ -133,7 +139,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
             left outer join purchase_order po on po.id = sp.purchase_id
             left outer join product_pricelist pl on pl.id = coalesce(so.pricelist_id, po.pricelist_id)
             where sm.id in %s
-            """, [tuple(prod_confirm.keys())])
+            """, [tuple(query_move_ids)])
         for move_item in cr.dictfetchall():
             qty = prod_confirm.get(move_item['id'], 0)
             moves_to_ship['move%s' % (move_item['id'])] = {
