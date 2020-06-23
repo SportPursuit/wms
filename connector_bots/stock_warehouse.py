@@ -133,6 +133,8 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
         old_backorder_id = stock_picking.backorder_id and stock_picking.backorder_id.id or False
         moves_to_ship = {}
+        query_move_ids = prod_confirm.keys()
+        logger.info('Selecting stock move, picking, order, PO and pricelist info for stock moves %s', query_move_ids)
         cr.execute("""
             select
                 sm.id "id", sm.product_id "product_id", sm.product_uom "product_uom", sm.prodlot_id "prodlot_id",
@@ -143,7 +145,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
             left outer join purchase_order po on po.id = sp.purchase_id
             left outer join product_pricelist pl on pl.id = coalesce(so.pricelist_id, po.pricelist_id)
             where sm.id in %s
-            """, [tuple(prod_confirm.keys())])
+            """, [tuple(query_move_ids)])
         for move_item in cr.dictfetchall():
             qty = prod_confirm.get(move_item['id'], 0)
             moves_to_ship['move%s' % (move_item['id'])] = {
@@ -695,11 +697,11 @@ class WarehouseAdapter(BotsCRUDAdapter):
                         export_tracking_number.delay(
                             self.session, 'magento.stock.picking.out', delivered_picking.magento_bind_ids[0].id
                         )
-                    except IndexError as exc:
+                    except IndexError:
                         # If the order has not come from Magento,
                         # behaviour to update magento is overriden, as the order will have originated elsewhere
                         if openerp_id.sale_id.magento_state != "Not a Magento order":
-                            raise exc
+                            raise IndexError('Picking %s has no corresponding magento bind ids' % (delivered_picking.name,))
 
                 # TODO: Handle various operations for extra stock (Additional done incoming for PO handled above)
                 if moves_extra:
