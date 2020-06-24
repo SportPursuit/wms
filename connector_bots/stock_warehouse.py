@@ -44,7 +44,7 @@ from psycopg2 import OperationalError
 
 logger = logging.getLogger(__name__)
 
-file_lock_msg = 'could not obtain lock on row in relation "bots_file"'
+FILE_LOCK_MSG = 'could not obtain lock on row in relation "bots_file"'
 
 NOT_TRACKED = 'NOT_TRACKED'
 BLANK_LABEL = 'BL'
@@ -105,11 +105,17 @@ class BotsStockInventoryBinder(BotsModelBinder):
 class BotsWarehouseImport(ImportSynchronizer):
     _model_name = ['bots.warehouse']
 
-    def import_picking_confirmation(self, picking_types=('in', 'out'), new_cr=True):
+    def import_picking_confirmation(self, model_name, record_id, picking_types=('in', 'out'), new_cr=True):
         """
         Import the picking confirmation from Bots
         """
-        self.backend_adapter.get_picking_conf(picking_types, new_cr=new_cr)
+        self.backend_adapter.get_picking_conf(model_name, record_id, picking_types, new_cr=new_cr)
+
+    def import_picking_file(self, picking_types=('in', 'out'), file_data=None):
+        """
+        Import the picking confirmation from Bots
+        """
+        self.backend_adapter.process_data(picking_types, file_data)
 
     def import_stock_levels(self, warehouse_id, new_cr=True):
         """
@@ -440,7 +446,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
         return main_picking
 
-    def get_picking_conf(self, picking_types, new_cr=True):
+    def get_picking_conf(self, model_name, record_id,  picking_types, new_cr=True):
 
         exceptions = []
 
@@ -451,12 +457,13 @@ class WarehouseAdapter(BotsCRUDAdapter):
         for file_id in file_ids:
             try:
                 with file_to_process(self.session, file_id[0], new_cr=new_cr) as f:
-                    self.process_data(picking_types, json.load(f))
+                    file_data = json.load(f)
+                import_picking_file.delay(self.session, model_name, record_id, picking_types, bots_file_id=file_id[0], file_data=file_data)
 
             except OperationalError, e:
-                # file_lock_msg suggests that another job is already handling these files,
+                # FILE_LOCK_MSG suggests that another job is already handling these files,
                 # so it is safe to continue without any further action.
-                if e.message and file_lock_msg in e.message:
+                if e.message and FILE_LOCK_MSG in e.message:
                     exception = "Exception %s when processing file %s: %s" % (e, file_id[1], traceback.format_exc())
                     exceptions.append(exception)
             except Exception, e:
@@ -794,9 +801,9 @@ class WarehouseAdapter(BotsCRUDAdapter):
                             add_checkpoint(_session, 'stock.inventory', inventory_id, self.backend_record.id)
 
             except OperationalError, e:
-                # file_lock_msg suggests that another job is already handling these files,
+                # FILE_LOCK_MSG suggests that another job is already handling these files,
                 # so it is safe to continue without any further action.
-                if e.message and file_lock_msg in e.message:
+                if e.message and FILE_LOCK_MSG in e.message:
                     exception = "Exception %s when processing file %s: %s" % (e, file_id[1], traceback.format_exc())
                     exceptions.append(exception)
             except Exception, e:
@@ -820,11 +827,23 @@ def import_stock_levels(session, model_name, record_id, new_cr=True):
     warehouse_importer.import_stock_levels(record_id, new_cr=new_cr)
     return True
 
+
 @job
 def import_picking_confirmation(session, model_name, record_id, picking_types, new_cr=True):
     warehouse = session.browse(model_name, record_id)
     backend_id = warehouse.backend_id.id
     env = get_environment(session, model_name, backend_id)
     warehouse_importer = env.get_connector_unit(BotsWarehouseImport)
-    warehouse_importer.import_picking_confirmation(picking_types=picking_types, new_cr=new_cr)
+    warehouse_importer.import_picking_confirmation(model_name, record_id, picking_types=picking_types, new_cr=new_cr)
+    return True
+
+
+@job
+def import_picking_file(session, model_name, record_id, picking_types, bots_file_id=None, file_data=None):
+    logger.info('Beginning import for bots file with id %s', bots_file_id)
+    warehouse = session.browse(model_name, record_id)
+    backend_id = warehouse.backend_id.id
+    env = get_environment(session, model_name, backend_id)
+    warehouse_importer = env.get_connector_unit(BotsWarehouseImport)
+    warehouse_importer.import_picking_file(picking_types=picking_types, file_data=file_data)
     return True
