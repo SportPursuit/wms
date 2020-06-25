@@ -847,5 +847,5 @@ def import_picking_file(session, model_name, record_id, picking_types, bots_file
         warehouse_importer.import_picking_file(picking_types=picking_types, file_data=file_data)
     except Exception, e:
         exception = "Exception %s when processing file %s" % (e, bots_file_name)
-        raise exception
+        raise Exception(exception)
     return True
