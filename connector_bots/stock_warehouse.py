@@ -457,8 +457,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
         for file_id in file_ids:
             try:
                 with file_to_process(self.session, file_id[0], new_cr=new_cr) as f:
-                    file_data = json.load(f)
-                import_picking_file.delay(self.session, model_name, record_id, picking_types, bots_file_id=file_id[0], file_data=file_data)
+                    import_picking_file.delay(self.session, model_name, record_id, picking_types, bots_file_name=file_id[1], file_data=json.load(f))
 
             except OperationalError, e:
                 # FILE_LOCK_MSG suggests that another job is already handling these files,
@@ -839,8 +838,8 @@ def import_picking_confirmation(session, model_name, record_id, picking_types, n
 
 
 @job
-def import_picking_file(session, model_name, record_id, picking_types, bots_file_id=None, file_data=None):
-    logger.info('Beginning import for bots file with id %s', bots_file_id)
+def import_picking_file(session, model_name, record_id, picking_types, bots_file_name=None, file_data=None):
+    logger.info('Beginning import for bots file %s', bots_file_name)
     warehouse = session.browse(model_name, record_id)
     backend_id = warehouse.backend_id.id
     env = get_environment(session, model_name, backend_id)
