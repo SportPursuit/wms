@@ -839,10 +839,13 @@ def import_picking_confirmation(session, model_name, record_id, picking_types, n
 
 @job
 def import_picking_file(session, model_name, record_id, picking_types, bots_file_name=None, file_data=None):
-    logger.info('Beginning import for bots file %s', bots_file_name)
     warehouse = session.browse(model_name, record_id)
     backend_id = warehouse.backend_id.id
     env = get_environment(session, model_name, backend_id)
     warehouse_importer = env.get_connector_unit(BotsWarehouseImport)
-    warehouse_importer.import_picking_file(picking_types=picking_types, file_data=file_data)
+    try:
+        warehouse_importer.import_picking_file(picking_types=picking_types, file_data=file_data)
+    except Exception, e:
+        exception = "Exception %s when processing file %s" % (e, bots_file_name)
+        raise exception
     return True
