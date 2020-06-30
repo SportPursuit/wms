@@ -211,7 +211,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                         # by lifting the cut-off flag instead
                         if cut_off:
                             procurement.purchase_id.write({'bots_cut_off': False})
-                        defaults = {'move_id': new_move, 'purchase_id': False}
+                        defaults = {'move_id': new_move, 'purchase_id': False, 'note': ''}
                         if move.sale_line_id:
                             defaults['procure_method'] = move.sale_line_id.type
                         new_procurement_id = procurement_obj.copy(cr, uid, procurement_id[0], defaults, context=context)
