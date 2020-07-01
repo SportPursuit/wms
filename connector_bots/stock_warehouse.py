@@ -211,7 +211,10 @@ class WarehouseAdapter(BotsCRUDAdapter):
                         # by lifting the cut-off flag instead
                         if cut_off:
                             procurement.purchase_id.write({'bots_cut_off': False})
-                        defaults = {'move_id': new_move, 'purchase_id': False, 'note': ''}
+                        new_note = ''
+                        if procurement.note:
+                            new_note = procurement.note.replace('_mto_to_mts_done_', '')
+                        defaults = {'move_id': new_move, 'purchase_id': False, 'note': new_note}
                         if move.sale_line_id:
                             defaults['procure_method'] = move.sale_line_id.type
                         new_procurement_id = procurement_obj.copy(cr, uid, procurement_id[0], defaults, context=context)
@@ -246,7 +249,10 @@ class WarehouseAdapter(BotsCRUDAdapter):
                     new_move = stock_move_obj.copy(cr, uid, move.id, {'picking_id': new_picking_id, 'product_qty': new_qty, 'product_uos_qty': new_qty}, context=context)
                     moves.append(new_move)
                     if procurement_id:
-                        defaults = {'move_id': new_move, 'purchase_id': False, 'product_qty': new_qty, 'product_uos_qty': new_qty}
+                        new_note = ''
+                        if procurement.note:
+                            new_note = procurement.note.replace('_mto_to_mts_done_', '')
+                        defaults = {'move_id': new_move, 'purchase_id': False, 'product_qty': new_qty, 'product_uos_qty': new_qty, 'note': new_note}
                         if move.sale_line_id:
                             defaults['procure_method'] = move.sale_line_id.type
                         new_procurement_id = procurement_obj.copy(cr, uid, procurement_id[0], defaults, context=context)
