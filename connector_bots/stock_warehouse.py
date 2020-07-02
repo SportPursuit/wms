@@ -250,8 +250,9 @@ class WarehouseAdapter(BotsCRUDAdapter):
                     moves.append(new_move)
                     if procurement_id:
                         new_note = ''
-                        if procurement.note:
-                            new_note = procurement.note.replace('_mto_to_mts_done_', '')
+                        existing_procurement = procurement_obj.browse(cr, uid, procurement_id[0], context=context)
+                        if existing_procurement.note:
+                            new_note = existing_procurement.note.replace('_mto_to_mts_done_', '')
                         defaults = {'move_id': new_move, 'purchase_id': False, 'product_qty': new_qty, 'product_uos_qty': new_qty, 'note': new_note}
                         if move.sale_line_id:
                             defaults['procure_method'] = move.sale_line_id.type
