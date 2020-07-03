@@ -212,6 +212,8 @@ class WarehouseAdapter(BotsCRUDAdapter):
                         if cut_off:
                             procurement.purchase_id.write({'bots_cut_off': False})
                         new_note = ''
+                        # Remove '_mto_to_mts_done_' from the new procurement note, so it will be allocated to stock
+                        # by the scheduler if stock is available
                         if procurement.note:
                             new_note = procurement.note.replace('_mto_to_mts_done_', '')
                             new_note = new_note.replace('\n\n\n\n', '\n\n')
@@ -251,6 +253,8 @@ class WarehouseAdapter(BotsCRUDAdapter):
                     moves.append(new_move)
                     if procurement_id:
                         new_note = ''
+                        # Remove '_mto_to_mts_done_' from the new procurement note, so it will be allocated to stock
+                        # by the scheduler if stock is available
                         existing_procurement = procurement_obj.browse(cr, uid, procurement_id[0], context=context)
                         if existing_procurement.note:
                             new_note = existing_procurement.note.replace('_mto_to_mts_done_', '')
