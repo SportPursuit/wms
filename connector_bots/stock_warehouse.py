@@ -532,6 +532,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                     main_picking = self.get_main_picking(main_picking, ctx)
 
                 if picking['type'] == 'in':
+                    logger.info("Main picking for PO %s: %s", picking['id'], main_picking_id)
                     open_shipments = filter(
                         lambda x: x.state == 'assigned',
                         main_picking.openerp_id.purchase_id.picking_ids
@@ -569,11 +570,25 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                                                        ], context=ctx)
 
                     # Match moves from the main picking as a fallback
-                    move_ids.extend(move_obj.search(_cr, self.session.uid,
+                    matching_moves = move_obj.search(_cr, self.session.uid,
                                                     [('picking_id', '=', main_picking.openerp_id.id),
                                                      ('product_id', '=', product_id),
                                                      ('state', 'not in', ignore_states),
-                                                     ], context=ctx))
+                                                     ], context=ctx)
+                    move_ids.extend(matching_moves)
+
+                    if picking['type'] == 'in':
+                        logger.info("Move(s) found for product %s and used for confirmation: %s", product_id, matching_moves)
+                        if not matching_moves:
+                            other_moves_for_product = move_obj.search(_cr, self.session.uid,
+                                                    [('picking_id', 'in', main_picking.openerp_id.picking_ids),
+                                                     ('product_id', '=', product_id),
+                                                     ('state', 'not in', ignore_states),
+                                                     ], context=ctx)
+                            if other_moves_for_product:
+                                logger.info("Move(s) with valid state found for product %s: %s", product_id, other_moves_for_product)
+                            else:
+                                logger.info("No valid stock moves found for product %s", product_id)
 
                     # Distribute qty over the moves, sperating by type - Use SQL to avoid slow name_get function
                     if move_ids:
