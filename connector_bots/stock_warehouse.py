@@ -579,19 +579,18 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
                     if picking['type'] == 'in':
                         logger.info("Move(s) found for product %s and used for confirmation: %s", product_id, picking['id'])
-                        if not matching_moves:
-                            logger.info("No valid stock moves found for product %s on PO %s", product_id, )
-                            other_moves_ids = move_obj.search(_cr, self.session.uid,
-                                                    [('picking_id', 'in', main_picking.openerp_id.picking_ids),
-                                                     ('product_id', '=', product_id),
-                                                     ('state', 'not in', ignore_states),
+                        other_moves_ids = move_obj.search(_cr, self.session.uid,
+                                                [('picking_id', 'in', main_picking.openerp_id.picking_ids),
+                                                 ('product_id', '=', product_id),
+                                                 ('state', 'not in', ignore_states),
+                                                 ('id', 'not in', matching_moves)
                                                      ], context=ctx)
-                            if other_moves_ids:
-                                other_moves = move_obj.browse(_cr, self.session.uid, other_moves_ids, context=ctx)
-                                moves_pickings = [{'move id': m.id, 'picking id': m.picking_id, 'purchase line id': m.purchase_line_id} for m in other_moves]
-                                logger.info("Move(s), pickings and purchase lines found for product %s: %s", product_id, moves_pickings)
-                            else:
-                                logger.info("No valid stock moves found for product %s", product_id)
+                        if other_moves_ids:
+                            other_moves = move_obj.browse(_cr, self.session.uid, other_moves_ids, context=ctx)
+                            moves_pickings = [{'move id': m.id, 'picking id': m.picking_id, 'purchase line id': m.purchase_line_id} for m in other_moves]
+                            logger.info("Available move(s) found for product %s that are not accounted for in shipment for PO %s: %s", product_id, picking['id'], moves_pickings)
+                        if not other_moves_ids and not matching_moves:
+                            logger.info("No valid stock moves found for product %s on PO %s", product_id, picking['id'])
 
                     # Distribute qty over the moves, sperating by type - Use SQL to avoid slow name_get function
                     if move_ids:
