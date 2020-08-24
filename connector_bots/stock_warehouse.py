@@ -578,7 +578,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                     move_ids.extend(matching_moves)
 
                     if picking['type'] == 'in':
-                        logger.info("Move(s) found for product %s and used for confirmation: %s", product_id, main_picking.openerp_id.purchase_id.name)
+                        logger.info("Move(s) found for product %s and used for confirmation: %s", product_id, picking['id'])
                         if not matching_moves:
                             logger.info("No valid stock moves found for product %s on PO %s", product_id, )
                             other_moves_ids = move_obj.search(_cr, self.session.uid,
