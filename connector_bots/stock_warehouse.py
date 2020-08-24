@@ -588,7 +588,11 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                                      ], context=ctx)
                         if other_moves_ids:
                             other_moves = move_obj.browse(_cr, self.session.uid, other_moves_ids, context=ctx)
-                            moves_pickings = [{'move id': m.id, 'picking id': m.picking_id, 'purchase line id': m.purchase_line_id} for m in other_moves]
+                            moves_pickings = [{'move id': m.id,
+                                               'move state': m.state,
+                                               'picking': m.picking_id.name,
+                                               'picking state': m.picking_id.state,
+                                               'purchase line id': m.purchase_line_id.id} for m in other_moves]
                             logger.info("Available move(s) found for product %s that are not accounted for in shipment for PO %s: %s", product_id, picking['id'], moves_pickings)
                         if not other_moves_ids and not matching_moves:
                             logger.info("No valid stock moves found for product %s on PO %s", product_id, picking['id'])
