@@ -532,7 +532,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                     main_picking = self.get_main_picking(main_picking, ctx)
 
                 if picking['type'] == 'in':
-                    logger.info("Main picking for PO %s: %s", picking['id'], main_picking_id)
+                    logger.info("Main picking for PO %s: %s", picking['id'], main_picking.name)
                     open_shipments = filter(
                         lambda x: x.state == 'assigned',
                         main_picking.openerp_id.purchase_id.picking_ids
@@ -591,8 +591,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                             moves_pickings = [{'move id': m.id,
                                                'move state': m.state,
                                                'picking': m.picking_id.name,
-                                               'picking state': m.picking_id.state,
-                                               'purchase line id': m.purchase_line_id.id} for m in other_moves]
+                                               'picking state': m.picking_id.state} for m in other_moves]
                             logger.info("Available move(s) found for product %s that are not accounted for in shipment for PO %s: %s", product_id, picking['id'], moves_pickings)
                         if not other_moves_ids and not matching_moves:
                             logger.info("No valid stock moves found for product %s on PO %s", product_id, picking['id'])
