@@ -532,6 +532,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                     main_picking = self.get_main_picking(main_picking, ctx)
 
                 if picking['type'] == 'in':
+                    logger.info("Main picking for PO %s: %s", picking['id'], main_picking.name)
                     open_shipments = filter(
                         lambda x: x.state == 'assigned',
                         main_picking.openerp_id.purchase_id.picking_ids
@@ -569,11 +570,31 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                                                        ], context=ctx)
 
                     # Match moves from the main picking as a fallback
-                    move_ids.extend(move_obj.search(_cr, self.session.uid,
+                    matching_moves = move_obj.search(_cr, self.session.uid,
                                                     [('picking_id', '=', main_picking.openerp_id.id),
                                                      ('product_id', '=', product_id),
                                                      ('state', 'not in', ignore_states),
-                                                     ], context=ctx))
+                                                     ], context=ctx)
+                    move_ids.extend(matching_moves)
+
+                    if picking['type'] == 'in':
+                        logger.info("Move(s) found for product %s and used for confirmation of PO %s: %s", product_id, picking['id'], matching_moves)
+                        po_picking_ids = [p.id for p in main_picking.openerp_id.purchase_id.picking_ids]
+                        other_moves_ids = move_obj.search(_cr, self.session.uid,
+                                                [('picking_id', 'in', po_picking_ids),
+                                                 ('product_id', '=', product_id),
+                                                 ('state', 'not in', ignore_states),
+                                                 ('id', 'not in', matching_moves)
+                                                     ], context=ctx)
+                        if other_moves_ids:
+                            other_moves = move_obj.browse(_cr, self.session.uid, other_moves_ids, context=ctx)
+                            moves_pickings = [{'move id': m.id,
+                                               'move state': m.state,
+                                               'picking': m.picking_id.name,
+                                               'picking state': m.picking_id.state} for m in other_moves]
+                            logger.info("Available move(s) found for product %s that are not accounted for in shipment for PO %s: %s", product_id, picking['id'], moves_pickings)
+                        if not other_moves_ids and not matching_moves:
+                            logger.info("No valid stock moves found for product %s on PO %s", product_id, picking['id'])
 
                     # Distribute qty over the moves, sperating by type - Use SQL to avoid slow name_get function
                     if move_ids:
