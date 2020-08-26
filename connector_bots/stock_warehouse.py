@@ -116,11 +116,11 @@ class BotsWarehouseImport(ImportSynchronizer):
         """
         self.backend_adapter.get_picking_conf(model_name, record_id, picking_types, new_cr=new_cr)
 
-    def import_picking_file(self, picking_types=('in', 'out'), file_data=None):
+    def import_picking_file(self, picking_types=('in', 'out'), file_data=None, rerun_args={}):
         """
         Import the picking confirmation from Bots
         """
-        self.backend_adapter.process_data(picking_types, file_data)
+        self.backend_adapter.process_data(picking_types, file_data, rerun_args=rerun_args)
 
     def import_stock_levels(self, warehouse_id, new_cr=True):
         """
@@ -506,7 +506,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                 return True
         return False
 
-    def split_picking_conf_in(self, picking_data):
+    def split_picking_conf_in(self, picking, rerun_args={}):
         cr = self.session.cr
         uid = self.session.uid
         product_binder = self.get_binder_for_model('bots.product')
@@ -515,77 +515,74 @@ class WarehouseAdapter(BotsCRUDAdapter):
         move_obj = self.session.pool.get('stock.move')
         order_line_obj = self.session.pool.get('sale.order.line')
 
-        for pickings in picking_data:
-            for picking in pickings['orderconf']['shipment']:
-                product_external_ids = [line['product'] for line in picking['line']]
-                product_external_dict = product_binder.to_openerp_multi(product_external_ids)
-                move_ids = []
+        product_external_ids = [line['product'] for line in picking['line']]
+        product_external_dict = product_binder.to_openerp_multi(product_external_ids)
+        move_ids = []
+        for line in picking['line']:
+            product_id = product_external_dict.get(line['product'], False)
+
+            main_picking_id = picking_binder.to_openerp(picking['id'])
+            main_picking = bots_picking_obj.browse(cr, uid, main_picking_id, context=ctx)
+
+            matching_moves = move_obj.search(cr, uid,
+                                             [('picking_id', '=', main_picking.openerp_id.id),
+                                              ('product_id', '=', product_id),
+                                              ('state', 'not in', ignore_states),
+                                              ], context=ctx)
+            move_ids.extend(matching_moves)
+        assigned_move_ids = move_obj.search(cr, uid, [('id', 'in', move_ids), ('move_dest_id', '!=', False)])
+        unassigned_move_ids = move_obj.search(cr, uid, [('id', 'in', move_ids), ('move_dest_id', '=', False)])
+
+        assigned_moves = move_obj.browse(cr, uid, assigned_move_ids)
+        order_ids = [m.move_dest_id.sale_line_id.order_id.id for m in assigned_moves]
+        order_chunks = [chunk for chunk in chunks(order_ids, 50)]
+
+        assigned_move_chunks = []
+        for order_chunk in order_chunks:
+            order_lines = order_line_obj.search(cr, uid, [('order_id', 'in', order_chunk)])
+            outbound_move_ids = move_obj.search(cr, uid, [('sale_line_id', 'in', order_lines)])
+            inbound_move_ids = move_obj.search(cr, uid, [('id', 'in', assigned_move_ids), ('move_dest_id', 'in', outbound_move_ids)])
+            assigned_move_chunks.append(inbound_move_ids)
+
+        unassigned_move_chunks = [chunk for chunk in chunks(unassigned_move_ids, 1000)]
+        all_move_chunks = assigned_move_chunks + unassigned_move_chunks
+
+        for move_chunk in all_move_chunks:
+            chunk_file_picking = [{'confirmed': picking['confirmed'],
+                                   'type': picking['type'],
+                                   'line': [],
+                                   'id': picking['id']}]
+            moves_data_dict = {}
+            moves_to_process = move_obj.browse(cr, uid, move_chunk)
+            for move in moves_to_process:
                 for line in picking['line']:
                     product_id = product_external_dict.get(line['product'], False)
+                    line_qty = int(line['qty_real'])
+                    if product_id == move.product_id.id and line_qty >= move.product_qty:
+                        line['qty_real'] = str(line_qty - move.product_qty)
+                        if moves_data_dict.get(move.product_id.id):
+                            qty_so_far = int(moves_data_dict[move.product_id.id][qty_real])
+                            moves_data_dict[move.product_id.id]['qty_real'] = str(qty_so_far + move.product_qty)
+                        else:
+                            move_data = {
+                                'status': line['status'],
+                                'product': line['product'],
+                                'qty_real': str(move.product_qty),
+                                'type': line['type'],
+                                'datetime': line['datetime']
+                            }
+                            moves_data_dict[move.product_id.id] = move_data
+            chunk_file_picking['line'] = [md[1] for md in moves_data_dict.items()]
+            chunk_file_data = [{'orderconf': {'shipment': chunk_file_picking}}]
+            import_picking_file.delay(self.session, rerun_args['model_name'], rerun_args['record_id'], rerun_args['picking_types'],
+                                      bots_file_name=rerun_args['bots_file_name'], file_data=chunk_file_data)
 
-                    main_picking_id = picking_binder.to_openerp(picking['id'])
-                    main_picking = bots_picking_obj.browse(cr, uid, main_picking_id, context=ctx)
-
-                    matching_moves = move_obj.search(cr, uid,
-                                                     [('picking_id', '=', main_picking.openerp_id.id),
-                                                      ('product_id', '=', product_id),
-                                                      ('state', 'not in', ignore_states),
-                                                      ], context=ctx)
-                    move_ids.extend(matching_moves)
-                assigned_move_ids = move_obj.search(cr, uid, [('id', 'in', move_ids), ('move_dest_id', '!=', False)])
-                unassigned_move_ids = move_obj.search(cr, uid, [('id', 'in', move_ids), ('move_dest_id', '=', False)])
-
-                assigned_moves = move_obj.browse(cr, uid, assigned_move_ids)
-                order_ids = [m.move_dest_id.sale_line_id.order_id.id for m in assigned_moves]
-                order_chunks = [chunk for chunk in chunks(order_ids, 50)]
-
-                assigned_move_chunks = []
-                for order_chunk in order_chunks:
-                    order_lines = order_line_obj.search(cr, uid, [('order_id', 'in', order_chunk)])
-                    outbound_move_ids = move_obj.search(cr, uid, [('sale_line_id', 'in', order_lines)])
-                    inbound_move_ids = move_obj.search(cr, uid, [('id', 'in', assigned_move_ids), ('move_dest_id', 'in', outbound_move_ids)])
-                    assigned_move_chunks.append(inbound_move_ids)
-
-                unassigned_move_chunks = [chunk for chunk in chunks(unassigned_move_ids, 1000)]
-                all_move_chunks = assigned_move_chunks + unassigned_move_chunks
-
-                for move_chunk in all_move_chunks:
-                    chunk_file_data = [{'orderconf':
-                                            {'shipment': [{'confirmed': picking['confirmed'],
-                                                           'type': picking['type'],
-                                                           'line': [],
-                                                           'id': picking['id']}]
-                                             }
-                                        }]
-                    moves_data_dict = {}
-                    moves_to_process = move_obj.browse(cr, uid, move_chunk)
-                    for move in moves_to_process:
-                        for line in picking['line']:
-                            product_id = product_external_dict.get(line['product'], False)
-                            line_qty = int(line['qty_real'])
-                            if product_id == move.product_id.id and line_qty >= move.product_qty:
-                                line['qty_real'] = str(line_qty - move.product_qty)
-                                if moves_data_dict.get(move.product_id.id):
-                                    qty_so_far = int(moves_data_dict[move.product_id.id][qty_real])
-                                    moves_data_dict[move.product_id.id]['qty_real'] = str(qty_so_far + move.product_qty)
-                                else:
-                                    move_data = {
-                                        'status': line['status'],
-                                        'product': line['product'],
-                                        'qty_real': str(move.product_qty),
-                                        'type': line['type'],
-                                        'datetime': line['datetime']
-                                    }
-                                    moves_data_dict[move.product_id.id] = move_data
-                    chunk_file_data['orderconf']['shipment']['line'] = [md[1] for md in moves_data_dict.items()]
-                    import_picking_file.delay(self.session, model_name, record_id, picking_types,
-                                              bots_file_name=file_id[1], file_data=json.load(f))
+        picking_data = [{'orderconf': {'shipment': picking}}]
+        import_picking_file.delay(self.session, rerun_args['model_name'], rerun_args['record_id'], rerun_args['picking_types'],
+                                          bots_file_name=rerun_args['bots_file_name'], file_data=picking_data)
 
 
-
-
-
-    def process_data(self, picking_types, picking_data, moves_to_process=[]):
+    def process_data(self, picking_types, picking_data, moves_to_process=[], rerun_args={}):
 
         product_binder = self.get_binder_for_model('bots.product')
         picking_in_binder = self.get_binder_for_model('bots.stock.picking.in')
@@ -972,8 +969,14 @@ def import_picking_file(session, model_name, record_id, picking_types, bots_file
     backend_id = warehouse.backend_id.id
     env = get_environment(session, model_name, backend_id)
     warehouse_importer = env.get_connector_unit(BotsWarehouseImport)
+    rerun_args = {
+        'model_name': model_name,
+        'record_id': record_id,
+        'picking_types': picking_types,
+        'bots_file_name': bots_file_name
+    }
     try:
-        warehouse_importer.import_picking_file(picking_types=picking_types, file_data=file_data)
+        warehouse_importer.import_picking_file(picking_types=picking_types, file_data=file_data, rerun_args=rerun_args)
     except Exception, e:
         exception = "Exception %s when processing file %s: %s" % (e, bots_file_name, traceback.format_exc())
         raise Exception(exception)
