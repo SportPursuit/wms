@@ -50,6 +50,11 @@ NOT_TRACKED = 'NOT_TRACKED'
 BLANK_LABEL = 'BL'
 
 
+def chunks(items, length):
+    for index in xrange(0, len(items), length):
+        yield items[index:index + length]
+
+
 class BotsWarehouse(orm.Model):
     _name = 'bots.warehouse'
     _inherit = 'bots.binding'
@@ -488,7 +493,99 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
         return res
 
-    def process_data(self, picking_types, picking_data):
+    def check_po_split(self, po_name):
+        purchase_obj = self.session.pool.get('purchase.order')
+        cr = self.session.cr
+        uid = self.session.uid
+        po_ids = purchase_obj.search(cr, uid, [('name', '=', po_name), ('bots_cross_dock', '=', False)])
+        if po_ids:
+            purchase = purchase_obj.browse(cr, uid, po_ids)[0]
+            if purchase.total_units > 1000 and purchase.percentage_sold > 0:
+                return True
+            if purchase.total_units > 10000:
+                return True
+        return False
+
+    def split_picking_conf_in(self, picking_data):
+        cr = self.session.cr
+        uid = self.session.uid
+        product_binder = self.get_binder_for_model('bots.product')
+        picking_binder = self.get_binder_for_model('bots.stock.picking.in')
+        bots_picking_obj = self.session.pool.get('bots.stock.picking.in')
+        move_obj = self.session.pool.get('stock.move')
+        order_line_obj = self.session.pool.get('sale.order.line')
+
+        for pickings in picking_data:
+            for picking in pickings['orderconf']['shipment']:
+                product_external_ids = [line['product'] for line in picking['line']]
+                product_external_dict = product_binder.to_openerp_multi(product_external_ids)
+                move_ids = []
+                for line in picking['line']:
+                    product_id = product_external_dict.get(line['product'], False)
+
+                    main_picking_id = picking_binder.to_openerp(picking['id'])
+                    main_picking = bots_picking_obj.browse(cr, uid, main_picking_id, context=ctx)
+
+                    matching_moves = move_obj.search(cr, uid,
+                                                     [('picking_id', '=', main_picking.openerp_id.id),
+                                                      ('product_id', '=', product_id),
+                                                      ('state', 'not in', ignore_states),
+                                                      ], context=ctx)
+                    move_ids.extend(matching_moves)
+                assigned_move_ids = move_obj.search(cr, uid, [('id', 'in', move_ids), ('move_dest_id', '!=', False)])
+                unassigned_move_ids = move_obj.search(cr, uid, [('id', 'in', move_ids), ('move_dest_id', '=', False)])
+
+                assigned_moves = move_obj.browse(cr, uid, assigned_move_ids)
+                order_ids = [m.move_dest_id.sale_line_id.order_id.id for m in assigned_moves]
+                order_chunks = [chunk for chunk in chunks(order_ids, 50)]
+
+                assigned_move_chunks = []
+                for order_chunk in order_chunks:
+                    order_lines = order_line_obj.search(cr, uid, [('order_id', 'in', order_chunk)])
+                    outbound_move_ids = move_obj.search(cr, uid, [('sale_line_id', 'in', order_lines)])
+                    inbound_move_ids = move_obj.search(cr, uid, [('id', 'in', assigned_move_ids), ('move_dest_id', 'in', outbound_move_ids)])
+                    assigned_move_chunks.append(inbound_move_ids)
+
+                unassigned_move_chunks = [chunk for chunk in chunks(unassigned_move_ids, 1000)]
+                all_move_chunks = assigned_move_chunks + unassigned_move_chunks
+
+                for move_chunk in all_move_chunks:
+                    chunk_file_data = [{'orderconf':
+                                            {'shipment': [{'confirmed': picking['confirmed'],
+                                                           'type': picking['type'],
+                                                           'line': [],
+                                                           'id': picking['id']}]
+                                             }
+                                        }]
+                    moves_data_dict = {}
+                    moves_to_process = move_obj.browse(cr, uid, move_chunk)
+                    for move in moves_to_process:
+                        for line in picking['line']:
+                            product_id = product_external_dict.get(line['product'], False)
+                            line_qty = int(line['qty_real'])
+                            if product_id == move.product_id.id and line_qty >= move.product_qty:
+                                line['qty_real'] = str(line_qty - move.product_qty)
+                                if moves_data_dict.get(move.product_id.id):
+                                    qty_so_far = int(moves_data_dict[move.product_id.id][qty_real])
+                                    moves_data_dict[move.product_id.id]['qty_real'] = str(qty_so_far + move.product_qty)
+                                else:
+                                    move_data = {
+                                        'status': line['status'],
+                                        'product': line['product'],
+                                        'qty_real': str(move.product_qty),
+                                        'type': line['type'],
+                                        'datetime': line['datetime']
+                                    }
+                                    moves_data_dict[move.product_id.id] = move_data
+                    chunk_file_data['orderconf']['shipment']['line'] = [md[1] for md in moves_data_dict.items()]
+                    import_picking_file.delay(self.session, model_name, record_id, picking_types,
+                                              bots_file_name=file_id[1], file_data=json.load(f))
+
+
+
+
+
+    def process_data(self, picking_types, picking_data, moves_to_process=[]):
 
         product_binder = self.get_binder_for_model('bots.product')
         picking_in_binder = self.get_binder_for_model('bots.stock.picking.in')
