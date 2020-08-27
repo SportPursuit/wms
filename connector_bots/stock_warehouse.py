@@ -506,6 +506,13 @@ class WarehouseAdapter(BotsCRUDAdapter):
                 return True
         return False
 
+    def reimport_split_pickings(self, data_list, rerun_args={}):
+        for data_dict in data_list:
+            import_picking_file.delay(self.session, rerun_args['model_name'], rerun_args['record_id'],
+                                      rerun_args['picking_types'],
+                                      bots_file_name=rerun_args['bots_file_name'], file_data=data_dict['file_data'],
+                                      moves_to_process=data_dict['moves_to_process'])
+
     def split_picking_conf_in(self, picking, rerun_args={}):
         cr = self.session.cr
         uid = self.session.uid
@@ -518,6 +525,9 @@ class WarehouseAdapter(BotsCRUDAdapter):
         product_external_ids = [line['product'] for line in picking['line']]
         product_external_dict = product_binder.to_openerp_multi(product_external_ids)
         move_ids = []
+        data_to_re_process = []
+
+        # Extract all moves that would have been identified for this PO in the main process_data job
         for line in picking['line']:
             product_id = product_external_dict.get(line['product'], False)
 
@@ -530,13 +540,17 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                               ('state', 'not in', ignore_states),
                                               ], context=ctx)
             move_ids.extend(matching_moves)
+
+        # Identify all moves with a 'move_dest_id', i.e. ones that are assigned to a procurement/sale order
         assigned_move_ids = move_obj.search(cr, uid, [('id', 'in', move_ids), ('move_dest_id', '!=', False)])
         unassigned_move_ids = move_obj.search(cr, uid, [('id', 'in', move_ids), ('move_dest_id', '=', False)])
 
+        # Identify assigned sale orders and split out into groups of 50
         assigned_moves = move_obj.browse(cr, uid, assigned_move_ids)
         order_ids = [m.move_dest_id.sale_line_id.order_id.id for m in assigned_moves]
         order_chunks = [chunk for chunk in chunks(order_ids, 50)]
 
+        # Take assigned inbound moves identified above and split out by their assigned sale order by chunk
         assigned_move_chunks = []
         for order_chunk in order_chunks:
             order_lines = order_line_obj.search(cr, uid, [('order_id', 'in', order_chunk)])
@@ -544,24 +558,34 @@ class WarehouseAdapter(BotsCRUDAdapter):
             inbound_move_ids = move_obj.search(cr, uid, [('id', 'in', assigned_move_ids), ('move_dest_id', 'in', outbound_move_ids)])
             assigned_move_chunks.append(inbound_move_ids)
 
+        # Split unassigned moves into groups of 1000, as they will be less intensive to process
         unassigned_move_chunks = [chunk for chunk in chunks(unassigned_move_ids, 1000)]
         all_move_chunks = assigned_move_chunks + unassigned_move_chunks
         moves_not_accounted_for = []
 
         for move_chunk in all_move_chunks:
+            # This is to be the basis of the icking file built up for this specific chunk of inbound stock moves
             chunk_file_picking = [{'confirmed': picking['confirmed'],
                                    'type': picking['type'],
                                    'line': [],
                                    'id': picking['id'],
                                    'shipment_split': True}]
             moves_data_dict = {}
+
+            # Extract the moves for this particular set of ids, so that their properties can be referenced
             moves_to_process = move_obj.browse(cr, uid, move_chunk)
             for move in moves_to_process:
                 for line in picking['line']:
                     product_id = product_external_dict.get(line['product'], False)
                     line_qty = int(line['qty_real'])
+
+                    # Check that there is enough stock in the picking data to assign this move
+                    # Product quantities are stings in the file, so that si preserved throughout
                     if product_id == move.product_id.id and line_qty >= move.product_qty:
+                        # If so, reduce the picking data quantity by the amount being assigned to the new picking data
                         line['qty_real'] = str(line_qty - move.product_qty)
+
+                        # append move quantity if there is a line for this product. Create a line if not
                         if moves_data_dict.get(move.product_id.id):
                             qty_so_far = int(moves_data_dict[move.product_id.id][qty_real])
                             moves_data_dict[move.product_id.id]['qty_real'] = str(qty_so_far + move.product_qty)
@@ -574,17 +598,23 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                 'datetime': line['datetime']
                             }
                             moves_data_dict[move.product_id.id] = move_data
+
                     else:
+                        # If there is not enough space in the picking file, categorise the move as 'not accounted for'
                         moves_not_accounted_for.append(move.id)
+
+            # Build picking_data and append to list of data to be re-imported
             chunk_file_picking['line'] = [md[1] for md in moves_data_dict.items()]
             chunk_file_data = [{'orderconf': {'shipment': chunk_file_picking}}]
-            import_picking_file.delay(self.session, rerun_args['model_name'], rerun_args['record_id'], rerun_args['picking_types'],
-                                      bots_file_name=rerun_args['bots_file_name'], file_data=chunk_file_data, moves_to_process=move_chunk)
+            data_to_re_process.append({'file_data': chunk_file_data, 'moves_to_process': move_chunk})
 
-        picking['shipment_split'] = True
-        picking_data = [{'orderconf': {'shipment': picking}}]
-        import_picking_file.delay(self.session, rerun_args['model_name'], rerun_args['record_id'], rerun_args['picking_types'],
-                                          bots_file_name=rerun_args['bots_file_name'], file_data=picking_data, moves_to_process=moves_not_accounted_for)
+        # If there are moves that could not be matched, append to list of data to be re-imported
+        if moves_not_accounted_for:
+            picking['shipment_split'] = True
+            picking_data = [{'orderconf': {'shipment': picking}}]
+            data_to_re_process.append({'file_data': picking_data, 'moves_to_process': moves_not_accounted_for})
+
+        self.reimport_split_pickings(data_to_re_process, rerun_args=rerun_args)
 
 
     def process_data(self, picking_types, picking_data, moves_to_process=[], rerun_args={}):
@@ -612,6 +642,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                 if picking['type'] == 'in' and not picking.get('shipment_split'):
                     picking_needs_splitting = self.check_po_split(picking['id'])
                     if picking_needs_splitting:
+                        logger.info("PO %s has met conditions to be split during shipment import", picking['id'])
                         self.split_picking_conf_in(picking, rerun_args=rerun_args)
                         return True
 
