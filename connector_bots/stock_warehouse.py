@@ -116,11 +116,11 @@ class BotsWarehouseImport(ImportSynchronizer):
         """
         self.backend_adapter.get_picking_conf(model_name, record_id, picking_types, new_cr=new_cr)
 
-    def import_picking_file(self, picking_types=('in', 'out'), file_data=None, rerun_args={}):
+    def import_picking_file(self, picking_types=('in', 'out'), file_data=None, moves_to_process=[], rerun_args={}):
         """
         Import the picking confirmation from Bots
         """
-        self.backend_adapter.process_data(picking_types, file_data, rerun_args=rerun_args)
+        self.backend_adapter.process_data(picking_types, file_data, moves_to_process=moves_to_process, rerun_args=rerun_args)
 
     def import_stock_levels(self, warehouse_id, new_cr=True):
         """
@@ -546,12 +546,14 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
         unassigned_move_chunks = [chunk for chunk in chunks(unassigned_move_ids, 1000)]
         all_move_chunks = assigned_move_chunks + unassigned_move_chunks
+        moves_not_accounted_for = []
 
         for move_chunk in all_move_chunks:
             chunk_file_picking = [{'confirmed': picking['confirmed'],
                                    'type': picking['type'],
                                    'line': [],
-                                   'id': picking['id']}]
+                                   'id': picking['id'],
+                                   'shipment_split': True}]
             moves_data_dict = {}
             moves_to_process = move_obj.browse(cr, uid, move_chunk)
             for move in moves_to_process:
@@ -572,14 +574,17 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                 'datetime': line['datetime']
                             }
                             moves_data_dict[move.product_id.id] = move_data
+                    else:
+                        moves_not_accounted_for.append(move.id)
             chunk_file_picking['line'] = [md[1] for md in moves_data_dict.items()]
             chunk_file_data = [{'orderconf': {'shipment': chunk_file_picking}}]
             import_picking_file.delay(self.session, rerun_args['model_name'], rerun_args['record_id'], rerun_args['picking_types'],
-                                      bots_file_name=rerun_args['bots_file_name'], file_data=chunk_file_data)
+                                      bots_file_name=rerun_args['bots_file_name'], file_data=chunk_file_data, moves_to_process=move_chunk)
 
+        picking['shipment_split'] = True
         picking_data = [{'orderconf': {'shipment': picking}}]
         import_picking_file.delay(self.session, rerun_args['model_name'], rerun_args['record_id'], rerun_args['picking_types'],
-                                          bots_file_name=rerun_args['bots_file_name'], file_data=picking_data)
+                                          bots_file_name=rerun_args['bots_file_name'], file_data=picking_data, moves_to_process=moves_not_accounted_for)
 
 
     def process_data(self, picking_types, picking_data, moves_to_process=[], rerun_args={}):
@@ -603,6 +608,12 @@ class WarehouseAdapter(BotsCRUDAdapter):
                 if picking['type'] not in picking_types:
                     # We are not a picking we want to import, discarded
                     continue
+
+                if picking['type'] == 'in' and not picking.get('shipment_split'):
+                    picking_needs_splitting = self.check_po_split(picking['id'])
+                    if picking_needs_splitting:
+                        self.split_picking_conf_in(picking, rerun_args=rerun_args)
+                        return True
 
                 if picking['type'] == 'in':
                     picking_binder = picking_in_binder
@@ -664,11 +675,19 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                                                        ], context=ctx)
 
                     # Match moves from the main picking as a fallback
-                    matching_moves = move_obj.search(_cr, self.session.uid,
-                                                    [('picking_id', '=', main_picking.openerp_id.id),
-                                                     ('product_id', '=', product_id),
-                                                     ('state', 'not in', ignore_states),
-                                                     ], context=ctx)
+                    if moves_to_process:
+                        matching_moves = move_obj.search(_cr, self.session.uid,
+                                                        [('picking_id', '=', main_picking.openerp_id.id),
+                                                         ('product_id', '=', product_id),
+                                                         ('state', 'not in', ignore_states),
+                                                         ('id', 'in', moves_to_process),
+                                                         ], context=ctx)
+                    else:
+                        matching_moves = move_obj.search(_cr, self.session.uid,
+                                                         [('picking_id', '=', main_picking.openerp_id.id),
+                                                          ('product_id', '=', product_id),
+                                                          ('state', 'not in', ignore_states),
+                                                          ], context=ctx)
                     move_ids.extend(matching_moves)
 
                     if picking['type'] == 'in':
@@ -964,7 +983,7 @@ def import_picking_confirmation(session, model_name, record_id, picking_types, n
 
 
 @job
-def import_picking_file(session, model_name, record_id, picking_types, bots_file_name=None, file_data=None):
+def import_picking_file(session, model_name, record_id, picking_types, bots_file_name=None, file_data=None, moves_to_process=[]):
     warehouse = session.browse(model_name, record_id)
     backend_id = warehouse.backend_id.id
     env = get_environment(session, model_name, backend_id)
@@ -976,7 +995,7 @@ def import_picking_file(session, model_name, record_id, picking_types, bots_file
         'bots_file_name': bots_file_name
     }
     try:
-        warehouse_importer.import_picking_file(picking_types=picking_types, file_data=file_data, rerun_args=rerun_args)
+        warehouse_importer.import_picking_file(picking_types=picking_types, file_data=file_data, moves_to_process=moves_to_process, rerun_args=rerun_args)
     except Exception, e:
         exception = "Exception %s when processing file %s: %s" % (e, bots_file_name, traceback.format_exc())
         raise Exception(exception)
