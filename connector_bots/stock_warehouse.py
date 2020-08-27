@@ -608,8 +608,8 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                 'type': line['type'],
                                 'datetime': line['datetime']
                             }
-                            logger.info("New line for product %s: %s",product_id, moves_data_dict[move.product_id.id])
                             moves_data_dict[move.product_id.id] = move_data
+                            logger.info("New line for product %s: %s",product_id, moves_data_dict[move.product_id.id])
 
                     else:
                         # If there is not enough space in the picking file, categorise the move as 'not accounted for'
