@@ -516,7 +516,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                       bots_file_name=rerun_args['bots_file_name'], file_data=data_dict['file_data'],
                                       moves_to_process=data_dict['moves_to_process'])
 
-    def split_picking_conf_in(self, picking, rerun_args={}):
+    def split_picking_conf_in(self, picking, rerun_args={}, ctx={}):
         cr = self.session.cr
         uid = self.session.uid
         product_binder = self.get_binder_for_model('bots.product')
@@ -535,7 +535,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
             product_id = product_external_dict.get(line['product'], False)
 
             main_picking_id = picking_binder.to_openerp(picking['id'])
-            main_picking = bots_picking_obj.browse(cr, uid, main_picking_id, context=ctx)
+            main_picking = bots_picking_obj.browse(cr, uid, main_picking_id, ctx=ctx)
 
             matching_moves = move_obj.search(cr, uid,
                                              [('picking_id', '=', main_picking.openerp_id.id),
@@ -656,7 +656,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                     picking_needs_splitting = self.check_po_split(picking['id'])
                     if picking_needs_splitting:
                         logger.info("PO %s has met conditions to be split during shipment import", picking['id'])
-                        self.split_picking_conf_in(picking, rerun_args=rerun_args)
+                        self.split_picking_conf_in(picking, rerun_args=rerun_args, context=ctx)
                         return True
 
                 if picking['type'] == 'in':
