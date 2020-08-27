@@ -573,7 +573,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
         moves_not_accounted_for = []
 
         for move_chunk in all_move_chunks:
-            # This is to be the basis of the icking file built up for this specific chunk of inbound stock moves
+            # This is to be the basis of the picking file built up for this specific chunk of inbound stock moves
             chunk_file_picking = [{'confirmed': picking['confirmed'],
                                    'type': picking['type'],
                                    'line': [],
@@ -598,7 +598,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
                             # append move quantity if there is a line for this product. Create a line if not
                             if moves_data_dict.get(move.product_id.id):
-                                qty_so_far = int(float(moves_data_dict[move.product_id.id][qty_real]))
+                                qty_so_far = int(float(moves_data_dict[move.product_id.id]['qty_real']))
                                 moves_data_dict[move.product_id.id]['qty_real'] = str(qty_so_far + move.product_qty)
                                 logger.info("Existing line for product %s: %s", product_id, moves_data_dict[move.product_id.id])
                             else:
