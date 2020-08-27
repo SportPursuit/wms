@@ -617,7 +617,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                         moves_not_accounted_for.append(move.id)
 
             # Build picking_data and append to list of data to be re-imported
-            chunk_file_picking['line'] = [md[1] for md in moves_data_dict.items()]
+            chunk_file_picking[0]['line'] = [md[1] for md in moves_data_dict.items()]
             chunk_file_data = [{'orderconf': {'shipment': chunk_file_picking}}]
             logger.info("Reconstructed picking data: %s", chunk_file_data)
             data_to_re_process.append({'file_data': chunk_file_data, 'moves_to_process': move_chunk})
@@ -626,7 +626,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
         logger.info("Moves not accounted for: %s", moves_not_accounted_for)
         if moves_not_accounted_for:
             picking['shipment_split'] = True
-            picking_data = [{'orderconf': {'shipment': picking}}]
+            picking_data = [{'orderconf': {'shipment': [picking]}}]
             data_to_re_process.append({'file_data': picking_data, 'moves_to_process': moves_not_accounted_for})
 
         logger.info("Data to reprocess: %s", data_to_re_process)
