@@ -49,6 +49,9 @@ FILE_LOCK_MSG = 'could not obtain lock on row in relation "bots_file"'
 NOT_TRACKED = 'NOT_TRACKED'
 BLANK_LABEL = 'BL'
 
+TOTAL_UNIT_SALE_THRESHOLD = 1
+TOTAL_UNIT_NO_SALE_THRESHOLD = 1
+
 
 def chunks(items, length):
     for index in xrange(0, len(items), length):
@@ -500,9 +503,9 @@ class WarehouseAdapter(BotsCRUDAdapter):
         po_ids = purchase_obj.search(cr, uid, [('name', '=', po_name), ('bots_cross_dock', '=', False)])
         if po_ids:
             purchase = purchase_obj.browse(cr, uid, po_ids)[0]
-            if purchase.total_units > 1000 and purchase.percentage_sold > 0:
+            if purchase.total_units > TOTAL_UNIT_SALE_THRESHOLD and purchase.percentage_sold > 0:
                 return True
-            if purchase.total_units > 10000:
+            if purchase.total_units > TOTAL_UNIT_NO_SALE_THRESHOLD:
                 return True
         return False
 
@@ -626,7 +629,6 @@ class WarehouseAdapter(BotsCRUDAdapter):
         logger.info("Data to reprocess: %s", data_to_re_process)
 
         self.reimport_split_pickings(data_to_re_process, rerun_args=rerun_args)
-
 
     def process_data(self, picking_types, picking_data, moves_to_process=[], rerun_args={}):
 
