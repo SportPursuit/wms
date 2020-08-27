@@ -591,30 +591,31 @@ class WarehouseAdapter(BotsCRUDAdapter):
                     logger.info("Move qty for product %s: %s", product_id, move.product_qty)
                     # Check that there is enough stock in the picking data to assign this move
                     # Product quantities are stings in the file, so that si preserved throughout
-                    if product_id == move.product_id.id and line_qty >= move.product_qty:
-                        # If so, reduce the picking data quantity by the amount being assigned to the new picking data
-                        line['qty_real'] = str(line_qty - move.product_qty)
+                    if product_id == move.product_id.id:
+                        if line_qty >= move.product_qty:
+                            # If so, reduce the picking data quantity by the amount being assigned to the new picking data
+                            line['qty_real'] = str(line_qty - move.product_qty)
 
-                        # append move quantity if there is a line for this product. Create a line if not
-                        if moves_data_dict.get(move.product_id.id):
-                            qty_so_far = int(float(moves_data_dict[move.product_id.id][qty_real]))
-                            moves_data_dict[move.product_id.id]['qty_real'] = str(qty_so_far + move.product_qty)
-                            logger.info("Existing line for product %s: %s", product_id, moves_data_dict[move.product_id.id])
+                            # append move quantity if there is a line for this product. Create a line if not
+                            if moves_data_dict.get(move.product_id.id):
+                                qty_so_far = int(float(moves_data_dict[move.product_id.id][qty_real]))
+                                moves_data_dict[move.product_id.id]['qty_real'] = str(qty_so_far + move.product_qty)
+                                logger.info("Existing line for product %s: %s", product_id, moves_data_dict[move.product_id.id])
+                            else:
+                                move_data = {
+                                    'status': line['status'],
+                                    'product': line['product'],
+                                    'qty_real': str(move.product_qty),
+                                    'type': line['type'],
+                                    'datetime': line['datetime']
+                                }
+                                moves_data_dict[move.product_id.id] = move_data
+                                logger.info("New line for product %s: %s",product_id, moves_data_dict[move.product_id.id])
+
                         else:
-                            move_data = {
-                                'status': line['status'],
-                                'product': line['product'],
-                                'qty_real': str(move.product_qty),
-                                'type': line['type'],
-                                'datetime': line['datetime']
-                            }
-                            moves_data_dict[move.product_id.id] = move_data
-                            logger.info("New line for product %s: %s",product_id, moves_data_dict[move.product_id.id])
+                            # If there is not enough space in the picking file, categorise the move as 'unaccounted for'
+                            moves_not_accounted_for.append(move.id)
                         continue
-
-                    else:
-                        # If there is not enough space in the picking file, categorise the move as 'not accounted for'
-                        moves_not_accounted_for.append(move.id)
 
                 picking['line'] = [l for l in picking['line'] if int(float(l['qty_real'])) > 0]
 
