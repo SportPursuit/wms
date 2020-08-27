@@ -525,6 +525,8 @@ class WarehouseAdapter(BotsCRUDAdapter):
         move_obj = self.session.pool.get('stock.move')
         order_line_obj = self.session.pool.get('sale.order.line')
 
+        ignore_states = ('cancel', 'draft', 'done', 'confirmed')
+
         product_external_ids = [line['product'] for line in picking['line']]
         product_external_dict = product_binder.to_openerp_multi(product_external_ids)
         move_ids = []
