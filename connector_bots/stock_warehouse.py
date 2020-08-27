@@ -586,7 +586,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
             for move in moves_to_process:
                 for line in picking['line']:
                     product_id = product_external_dict.get(line['product'], False)
-                    line_qty = int(line['qty_real'])
+                    line_qty = int(float(line['qty_real']))
                     logger.info("Line qty for product %s: %s", product_id, line_qty)
                     logger.info("Move qty for product %s: %s", product_id, move.product_qty)
                     # Check that there is enough stock in the picking data to assign this move
@@ -597,7 +597,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
                         # append move quantity if there is a line for this product. Create a line if not
                         if moves_data_dict.get(move.product_id.id):
-                            qty_so_far = int(moves_data_dict[move.product_id.id][qty_real])
+                            qty_so_far = int(float(moves_data_dict[move.product_id.id][qty_real]))
                             moves_data_dict[move.product_id.id]['qty_real'] = str(qty_so_far + move.product_qty)
                             logger.info("Existing line for product %s: %s", product_id, moves_data_dict[move.product_id.id])
                         else:
@@ -610,6 +610,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                             }
                             moves_data_dict[move.product_id.id] = move_data
                             logger.info("New line for product %s: %s",product_id, moves_data_dict[move.product_id.id])
+                        continue
 
                     else:
                         # If there is not enough space in the picking file, categorise the move as 'not accounted for'
