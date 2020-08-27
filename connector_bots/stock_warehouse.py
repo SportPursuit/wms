@@ -616,6 +616,8 @@ class WarehouseAdapter(BotsCRUDAdapter):
                         # If there is not enough space in the picking file, categorise the move as 'not accounted for'
                         moves_not_accounted_for.append(move.id)
 
+                picking['line'] = [l for l in picking['line'] if int(float(l['qty_real'])) > 0]
+
             # Build picking_data and append to list of data to be re-imported
             chunk_file_picking[0]['line'] = [md[1] for md in moves_data_dict.items()]
             chunk_file_data = [{'orderconf': {'shipment': chunk_file_picking}}]
