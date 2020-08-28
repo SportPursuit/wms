@@ -555,7 +555,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
         # Identify assigned sale orders and split out into groups of 50
         assigned_moves = move_obj.browse(cr, uid, assigned_move_ids)
         order_ids = [m.move_dest_id.sale_line_id.order_id.id for m in assigned_moves]
-        order_chunks = [chunk for chunk in chunks(order_ids, 2)]
+        order_chunks = [chunk for chunk in chunks(order_ids, 1)]
         logger.info("Order chunks: %s", order_chunks)
 
         # Take assigned inbound moves identified above and split out by their assigned sale order by chunk
