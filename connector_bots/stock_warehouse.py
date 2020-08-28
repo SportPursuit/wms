@@ -648,6 +648,8 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
         ctx = self.session.context.copy()
         ctx['wms_bots'] = True
+        if moves_to_process:
+            ctx['sp_invoice_no_store'] = True
 
         _cr = self.session.cr
 
