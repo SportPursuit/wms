@@ -52,6 +52,7 @@ BLANK_LABEL = 'BL'
 PO_UNIT_SALE_THRESHOLD = 1
 PO_UNIT_NO_SALE_THRESHOLD = 10000
 PO_SALE_BATCH_SIZE = 50
+PO_UNALLOCATED_BATCH_SIZE = 1000
 
 
 def chunks(items, length):
@@ -569,7 +570,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
             logger.info("Inbound move ids found for orders %s: %s", order_chunk, inbound_move_ids)
 
         # Split unassigned moves into groups of 1000, as they will be less intensive to process
-        unassigned_move_chunks = [chunk for chunk in chunks(unassigned_move_ids, 1000)]
+        unassigned_move_chunks = [chunk for chunk in chunks(unassigned_move_ids, PO_UNALLOCATED_BATCH_SIZE)]
         all_move_chunks = assigned_move_chunks + unassigned_move_chunks
         moves_not_accounted_for = []
 
