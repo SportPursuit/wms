@@ -51,7 +51,7 @@ BLANK_LABEL = 'BL'
 
 PO_UNIT_SALE_THRESHOLD = 1
 PO_UNIT_NO_SALE_THRESHOLD = 10000
-PO_SALE_ORDER_THRESHOLD = 50
+PO_SALE_BATCH_SIZE = 50
 
 
 def chunks(items, length):
@@ -556,7 +556,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
         # Identify assigned sale orders and split out into groups of 50
         assigned_moves = move_obj.browse(cr, uid, assigned_move_ids)
         order_ids = [m.move_dest_id.sale_line_id.order_id.id for m in assigned_moves]
-        order_chunks = [chunk for chunk in chunks(order_ids, PO_SALE_ORDER_THRESHOLD)]
+        order_chunks = [chunk for chunk in chunks(order_ids, PO_SALE_BATCH_SIZE)]
         logger.info("Order chunks: %s", order_chunks)
 
         # Take assigned inbound moves identified above and split out by their assigned sale order by chunk
