@@ -659,6 +659,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                     # We are not a picking we want to import, discarded
                     continue
 
+                # The 'shipment_split' param tells the task that this file has already been split
                 if picking['type'] == 'in' and not picking.get('shipment_split'):
                     picking_needs_splitting = self.check_po_split(picking['id'])
                     if picking_needs_splitting:
