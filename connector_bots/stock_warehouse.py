@@ -556,7 +556,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
         # Identify assigned sale orders and split out into groups of 50
         assigned_moves = move_obj.browse(cr, uid, assigned_move_ids)
-        order_ids = [m.move_dest_id.sale_line_id.order_id.id for m in assigned_moves]
+        order_ids = list(set([m.move_dest_id.sale_line_id.order_id.id for m in assigned_moves]))
         order_chunks = [chunk for chunk in chunks(order_ids, PO_SALE_BATCH_SIZE)]
         logger.info("Order chunks: %s", order_chunks)
 
@@ -620,10 +620,12 @@ class WarehouseAdapter(BotsCRUDAdapter):
                         continue
 
             # Build picking_data and append to list of data to be re-imported
-            chunk_file_picking[0]['line'] = [md[1] for md in moves_data_dict.items()]
-            chunk_file_data = [{'orderconf': {'shipment': chunk_file_picking}}]
-            logger.info("Reconstructed picking data: %s", chunk_file_data)
-            data_to_re_process.append({'file_data': chunk_file_data, 'moves_to_process': move_chunk})
+            lines_found = [md[1] for md in moves_data_dict.items()]
+            if lines_found:
+                chunk_file_picking[0]['line'] = lines_found
+                chunk_file_data = [{'orderconf': {'shipment': chunk_file_picking}}]
+                logger.info("Reconstructed picking data: %s", chunk_file_data)
+                data_to_re_process.append({'file_data': chunk_file_data, 'moves_to_process': move_chunk})
 
         picking['line'] = [l for l in picking['line'] if int(float(l['qty_real'])) > 0]
 
