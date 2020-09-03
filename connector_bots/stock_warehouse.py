@@ -612,14 +612,12 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                     'datetime': line['datetime']
                                 }
                                 moves_data_dict[move.product_id.id] = move_data
-                                logger.info("New line for product %s: %s",product_id, moves_data_dict[move.product_id.id])
+                                logger.info("New line for product %s: %s", product_id, moves_data_dict[move.product_id.id])
 
                         else:
                             # If there is not enough space in the picking file, categorise the move as 'unaccounted for'
                             moves_not_accounted_for.append(move.id)
                         continue
-
-                picking['line'] = [l for l in picking['line'] if int(float(l['qty_real'])) > 0]
 
             # Build picking_data and append to list of data to be re-imported
             chunk_file_picking[0]['line'] = [md[1] for md in moves_data_dict.items()]
@@ -627,9 +625,11 @@ class WarehouseAdapter(BotsCRUDAdapter):
             logger.info("Reconstructed picking data: %s", chunk_file_data)
             data_to_re_process.append({'file_data': chunk_file_data, 'moves_to_process': move_chunk})
 
-        # If there are moves that could not be matched, append to list of data to be re-imported
+        picking['line'] = [l for l in picking['line'] if int(float(l['qty_real'])) > 0]
+
+        # Append any unimported moves to the list of data to be re-imported
         logger.info("Moves not accounted for: %s", moves_not_accounted_for)
-        if moves_not_accounted_for:
+        if picking['line']:
             picking['shipment_split'] = True
             picking_data = [{'orderconf': {'shipment': [picking]}}]
             data_to_re_process.append({'file_data': picking_data, 'moves_to_process': moves_not_accounted_for})
