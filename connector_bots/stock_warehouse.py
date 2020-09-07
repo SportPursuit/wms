@@ -52,7 +52,7 @@ BLANK_LABEL = 'BL'
 PO_UNIT_SALE_THRESHOLD = 1
 PO_UNIT_NO_SALE_THRESHOLD = 10000
 PO_SALE_BATCH_SIZE = 3
-PO_UNALLOCATED_BATCH_SIZE = 30
+PICKING_LINE_BATCH = 1000
 
 
 def chunks(items, length):
@@ -525,9 +525,12 @@ class WarehouseAdapter(BotsCRUDAdapter):
         picking_binder = self.get_binder_for_model('bots.stock.picking.in')
         bots_picking_obj = self.session.pool.get('bots.stock.picking.in')
         move_obj = self.session.pool.get('stock.move')
-        order_line_obj = self.session.pool.get('sale.order.line')
+        order_obj = self.session.pool.get('sale.order')
+        procurement_obj = self.session.pool.get('procurement.order')
+        purchase_obj = self.session.pool.get('purchase.order')
 
         ignore_states = ('cancel', 'draft', 'done', 'confirmed')
+        purchase_id = purchase_obj.search(cr, uid, [('name', '=', picking['id'])])[0]
 
         product_external_ids = [line['product'] for line in picking['line']]
         product_external_dict = product_binder.to_openerp_multi(product_external_ids)
@@ -550,9 +553,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
         # Identify all moves with a 'move_dest_id', i.e. ones that are assigned to a procurement/sale order
         assigned_move_ids = move_obj.search(cr, uid, [('id', 'in', move_ids), ('move_dest_id', '!=', False)])
-        unassigned_move_ids = move_obj.search(cr, uid, [('id', 'in', move_ids), ('move_dest_id', '=', False)])
         logger.info("Assigned move ids: %s", assigned_move_ids)
-        logger.info("Unassigned move ids: %s", unassigned_move_ids)
 
         # Identify assigned sale orders and split out into groups of 50
         assigned_moves = move_obj.browse(cr, uid, assigned_move_ids)
@@ -563,84 +564,79 @@ class WarehouseAdapter(BotsCRUDAdapter):
         # Take assigned inbound moves identified above and split out by their assigned sale order by chunk
         assigned_move_chunks = []
         for order_chunk in order_chunks:
-            order_lines = order_line_obj.search(cr, uid, [('order_id', 'in', order_chunk)])
-            outbound_move_ids = move_obj.search(cr, uid, [('sale_line_id', 'in', order_lines)])
-            inbound_move_ids = move_obj.search(cr, uid, [('id', 'in', assigned_move_ids), ('move_dest_id', 'in', outbound_move_ids)])
-            assigned_move_chunks.append(inbound_move_ids)
-            logger.info("Inbound move ids found for orders %s: %s", order_chunk, inbound_move_ids)
 
-        # Split unassigned moves into groups of 1000, as they will be less intensive to process
-        unassigned_move_chunks = [chunk for chunk in chunks(unassigned_move_ids, PO_UNALLOCATED_BATCH_SIZE)]
-        all_move_chunks = assigned_move_chunks + unassigned_move_chunks
-        moves_not_accounted_for = []
-
-        for move_chunk in all_move_chunks:
             # This is to be the basis of the picking file built up for this specific chunk of inbound stock moves
             chunk_file_picking = [{'confirmed': picking['confirmed'],
                                    'type': picking['type'],
                                    'line': [],
                                    'id': picking['id'],
                                    'shipment_split': True}]
-            moves_data_dict = {}
+            orders_data_dict = {}
 
             # Extract the moves for this particular set of ids, so that their properties can be referenced
-            moves_to_process = move_obj.browse(cr, uid, move_chunk)
-            for move in moves_to_process:
+            orders_to_process = order_obj.browse(cr, uid, order_chunk)
+            for order in orders_to_process:
                 for line in picking['line']:
                     product_id = product_external_dict.get(line['product'], False)
-                    line_qty = int(float(line['qty_real']))
-                    logger.info("Line qty for product %s: %s", product_id, line_qty)
-                    logger.info("Move qty for product %s: %s", product_id, move.product_qty)
-                    # Check that there is enough stock in the picking data to assign this move
-                    # Product quantities are stings in the file, so that si preserved throughout
-                    if product_id == move.product_id.id:
-                        if line_qty >= move.product_qty:
+                    procurement_ids = procurement_obj.search(cr, uid, [('order_id' '=', order.name),
+                                                                       ('product_id', '=', product_id),
+                                                                       ('purchase_id', '=', purchase_id)])
+                    if procurement_ids:
+                        procurements = procurement_obj.browse(cr, uid, procurement_ids)
+                        sale_order_qty = sum([p.product_qty for p in procurements])
+                        line_qty = int(float(line['qty_real']))
+                        logger.info("Line qty for product %s: %s", product_id, line_qty)
+                        logger.info("Order qty for product %s: %s", product_id, sale_order_qty)
+                        # Check that there is enough stock in the picking data to assign this move
+                        # Product quantities are stings in the file, so that si preserved throughout
+                        if line_qty >= sale_order_qty:
                             # If so, reduce the picking data quantity by the amount being assigned to the new picking data
-                            line['qty_real'] = str(line_qty - move.product_qty)
+                            line['qty_real'] = str(line_qty - sale_order_qty)
 
                             # append move quantity if there is a line for this product. Create a line if not
-                            if moves_data_dict.get(move.product_id.id):
-                                qty_so_far = int(float(moves_data_dict[move.product_id.id]['qty_real']))
-                                moves_data_dict[move.product_id.id]['qty_real'] = str(qty_so_far + move.product_qty)
-                                logger.info("Existing line for product %s: %s", product_id, moves_data_dict[move.product_id.id])
+                            if orders_data_dict.get(move.product_id.id):
+                                qty_so_far = int(float(orders_data_dict[product_id]['qty_real']))
+                                orders_data_dict[move.product_id.id]['qty_real'] = str(qty_so_far + sale_order_qty)
+                                logger.info("Existing line for product %s: %s", product_id, orders_data_dict[product_id])
                             else:
                                 move_data = {
                                     'status': line['status'],
                                     'product': line['product'],
-                                    'qty_real': str(move.product_qty),
+                                    'qty_real': str(sale_order_qty),
                                     'type': line['type'],
                                     'datetime': line['datetime']
                                 }
-                                moves_data_dict[move.product_id.id] = move_data
-                                logger.info("New line for product %s: %s", product_id, moves_data_dict[move.product_id.id])
+                                orders_data_dict[product_id] = move_data
+                                logger.info("New line for product %s: %s", product_id, orders_data_dict[product_id])
 
-                        else:
-                            # If there is not enough space in the picking file, categorise the move as 'unaccounted for'
-                            moves_not_accounted_for.append(move.id)
                         continue
 
             # Build picking_data and append to list of data to be re-imported
-            lines_found = [md[1] for md in moves_data_dict.items()]
+            lines_found = [md[1] for md in orders_data_dict.items()]
             if lines_found:
                 chunk_file_picking[0]['line'] = lines_found
                 chunk_file_data = [{'orderconf': {'shipment': chunk_file_picking}}]
                 logger.info("Reconstructed picking data: %s", chunk_file_data)
-                data_to_re_process.append({'file_data': chunk_file_data, 'moves_to_process': move_chunk})
+                data_to_re_process.append({'file_data': chunk_file_data, 'orders_to_process': {'allocated': True, 'orders': order_chunk}})
 
         picking['line'] = [l for l in picking['line'] if int(float(l['qty_real'])) > 0]
 
-        # Append any unimported moves to the list of data to be re-imported
-        logger.info("Moves not accounted for: %s", moves_not_accounted_for)
+        # Split and import list of data to be re-imported
         if picking['line']:
-            picking['shipment_split'] = True
-            picking_data = [{'orderconf': {'shipment': [picking]}}]
-            data_to_re_process.append({'file_data': picking_data, 'moves_to_process': moves_not_accounted_for})
+            for line_chunk in chunks(picking['line'], PICKING_LINE_BATCH):
+                line_chunk_file_picking = [{'confirmed': picking['confirmed'],
+                                           'type': picking['type'],
+                                           'line': line_chunk,
+                                           'id': picking['id'],
+                                           'shipment_split': True}]
+                picking_data = [{'orderconf': {'shipment': [line_chunk_file_picking]}}]
+                data_to_re_process.append({'file_data': picking_data, 'orders_to_process': {'allocated': False}})
 
         logger.info("Data to reprocess: %s", data_to_re_process)
 
         self.reimport_split_pickings(data_to_re_process, rerun_args=rerun_args)
 
-    def process_data(self, picking_types, picking_data, moves_to_process=[], rerun_args={}):
+    def process_data(self, picking_types, picking_data, orders_to_process=None, rerun_args={}):
 
         product_binder = self.get_binder_for_model('bots.product')
         picking_in_binder = self.get_binder_for_model('bots.stock.picking.in')
@@ -730,19 +726,27 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                                                        ], context=ctx)
 
                     # Match moves from the main picking as a fallback
-                    if moves_to_process:
-                        matching_moves = move_obj.search(_cr, self.session.uid,
-                                                        [('picking_id', '=', main_picking.openerp_id.id),
-                                                         ('product_id', '=', product_id),
-                                                         ('state', 'not in', ignore_states),
-                                                         ('id', 'in', moves_to_process),
-                                                         ], context=ctx)
-                    else:
-                        matching_moves = move_obj.search(_cr, self.session.uid,
-                                                         [('picking_id', '=', main_picking.openerp_id.id),
-                                                          ('product_id', '=', product_id),
-                                                          ('state', 'not in', ignore_states),
-                                                          ], context=ctx)
+
+                    matching_moves = move_obj.search(_cr, self.session.uid,
+                                                     [('picking_id', '=', main_picking.openerp_id.id),
+                                                      ('product_id', '=', product_id),
+                                                      ('state', 'not in', ignore_states),
+                                                      ], context=ctx)
+
+                    if orders_to_process:
+                        if orders_to_process['assigned']:
+                            order_lines = order_line_obj.search(cr, uid, [('order_id', 'in', orders_to_process['orders'])])
+                            outbound_move_ids = move_obj.search(cr, uid, [('sale_line_id', 'in', order_lines)])
+                            matching_moves = move_obj.search(_cr, self.session.uid,
+                                                            [('id', 'in', matching_moves),
+                                                             ('move_dest_id', 'in', outbound_move_ids),
+                                                             ], context=ctx)
+                        else:
+                            matching_moves = move_obj.search(_cr, self.session.uid,
+                                                             [('id', 'in', matching_moves),
+                                                              ('move_dest_id', '=', False),
+                                                              ], context=ctx)
+
                     move_ids.extend(matching_moves)
 
                     if picking['type'] == 'in':
