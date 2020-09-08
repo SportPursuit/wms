@@ -516,7 +516,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
             import_picking_file.delay(self.session, rerun_args['model_name'], rerun_args['record_id'],
                                       rerun_args['picking_types'],
                                       bots_file_name=rerun_args['bots_file_name'], file_data=data_dict['file_data'],
-                                      orders_to_process=data_dict['orders_to_process'])
+                                      orders_to_process=data_dict.get('orders_to_process'))
 
     def split_picking_conf_in(self, picking, rerun_args={}, ctx={}):
         cr = self.session.cr
@@ -617,7 +617,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                 chunk_file_picking[0]['line'] = lines_found
                 chunk_file_data = [{'orderconf': {'shipment': chunk_file_picking}}]
                 logger.info("Reconstructed picking data: %s", chunk_file_data)
-                data_to_re_process.append({'file_data': chunk_file_data, 'orders_to_process': {'allocated': True, 'orders': order_chunk}})
+                data_to_re_process.append({'file_data': chunk_file_data, 'orders_to_process': order_chunk})
 
         picking['line'] = [l for l in picking['line'] if int(float(l['qty_real'])) > 0]
 
@@ -630,7 +630,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                            'id': picking['id'],
                                            'shipment_split': True}]
                 picking_data = [{'orderconf': {'shipment': line_chunk_file_picking}}]
-                data_to_re_process.append({'file_data': picking_data, 'orders_to_process': {'allocated': False}})
+                data_to_re_process.append({'file_data': picking_data})
 
         logger.info("Data to reprocess: %s", data_to_re_process)
 
@@ -734,8 +734,8 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                                       ('state', 'not in', ignore_states),
                                                       ], context=ctx)
 
-                    if orders_to_process:
-                        if orders_to_process['allocated']:
+                    if picking.get('shipment_split'):
+                        if orders_to_process:
                             order_lines = order_line_obj.search(_cr, self.session.uid, [('order_id', 'in', orders_to_process['orders'])])
                             outbound_move_ids = move_obj.search(_cr, self.session.uid, [('sale_line_id', 'in', order_lines)])
                             matching_moves = move_obj.search(_cr, self.session.uid,
