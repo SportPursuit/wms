@@ -629,7 +629,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                            'line': line_chunk,
                                            'id': picking['id'],
                                            'shipment_split': True}]
-                picking_data = [{'orderconf': {'shipment': [line_chunk_file_picking]}}]
+                picking_data = [{'orderconf': {'shipment': line_chunk_file_picking}}]
                 data_to_re_process.append({'file_data': picking_data, 'orders_to_process': {'allocated': False}})
 
         logger.info("Data to reprocess: %s", data_to_re_process)
@@ -734,7 +734,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                                                       ], context=ctx)
 
                     if orders_to_process:
-                        if orders_to_process['assigned']:
+                        if orders_to_process['allocated']:
                             order_lines = order_line_obj.search(cr, uid, [('order_id', 'in', orders_to_process['orders'])])
                             outbound_move_ids = move_obj.search(cr, uid, [('sale_line_id', 'in', order_lines)])
                             matching_moves = move_obj.search(_cr, self.session.uid,
