@@ -53,6 +53,7 @@ PO_UNIT_SALE_THRESHOLD = 1
 PO_UNIT_NO_SALE_THRESHOLD = 10000
 PO_SALE_BATCH_SIZE = 3
 PICKING_LINE_BATCH = 2
+TEST_SPLIT_PO_REF = None
 
 
 def chunks(items, length):
@@ -502,6 +503,12 @@ class WarehouseAdapter(BotsCRUDAdapter):
         purchase_obj = self.session.pool.get('purchase.order')
         cr = self.session.cr
         uid = self.session.uid
+
+        if TEST_SPLIT_PO_REF:
+            if TEST_SPLIT_PO_REF == po_name:
+                return True
+            return False
+
         po_ids = purchase_obj.search(cr, uid, [('name', '=', po_name), ('bots_cross_dock', '=', False)])
         if po_ids:
             purchase = purchase_obj.browse(cr, uid, po_ids)[0]
