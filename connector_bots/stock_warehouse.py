@@ -596,7 +596,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                             # append move quantity if there is a line for this product. Create a line if not
                             if orders_data_dict.get(product_id):
                                 qty_so_far = int(float(orders_data_dict[product_id]['qty_real']))
-                                orders_data_dict[move.product_id.id]['qty_real'] = str(qty_so_far + sale_order_qty)
+                                orders_data_dict[product_id]['qty_real'] = str(qty_so_far + sale_order_qty)
                                 logger.info("Existing line for product %s: %s", product_id, orders_data_dict[product_id])
                             else:
                                 move_data = {
