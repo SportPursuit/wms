@@ -645,6 +645,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
         bots_picking_out_obj = self.session.pool.get('bots.stock.picking.out')
         move_obj = self.session.pool.get('stock.move')
         picking_obj = self.session.pool.get('stock.picking')
+        order_line_obj = self.session.pool.get('sale.order.line')
 
         ctx = self.session.context.copy()
         ctx['wms_bots'] = True
