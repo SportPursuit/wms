@@ -578,7 +578,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
             for order in orders_to_process:
                 for line in picking['line']:
                     product_id = product_external_dict.get(line['product'], False)
-                    procurement_ids = procurement_obj.search(cr, uid, [('order_id' '=', order.name),
+                    procurement_ids = procurement_obj.search(cr, uid, [('source' '=', order.name),
                                                                        ('product_id', '=', product_id),
                                                                        ('purchase_id', '=', purchase_id)])
                     if procurement_ids:
