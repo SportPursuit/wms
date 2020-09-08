@@ -736,7 +736,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
                     if picking.get('shipment_split'):
                         if orders_to_process:
-                            order_lines = order_line_obj.search(_cr, self.session.uid, [('order_id', 'in', orders_to_process['orders'])])
+                            order_lines = order_line_obj.search(_cr, self.session.uid, [('order_id', 'in', orders_to_process)])
                             outbound_move_ids = move_obj.search(_cr, self.session.uid, [('sale_line_id', 'in', order_lines)])
                             matching_moves = move_obj.search(_cr, self.session.uid,
                                                             [('id', 'in', matching_moves),
