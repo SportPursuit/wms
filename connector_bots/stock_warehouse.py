@@ -736,8 +736,8 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
                     if orders_to_process:
                         if orders_to_process['allocated']:
-                            order_lines = order_line_obj.search(cr, uid, [('order_id', 'in', orders_to_process['orders'])])
-                            outbound_move_ids = move_obj.search(cr, uid, [('sale_line_id', 'in', order_lines)])
+                            order_lines = order_line_obj.search(_cr, self.session.uid, [('order_id', 'in', orders_to_process['orders'])])
+                            outbound_move_ids = move_obj.search(_cr, self.session.uid, [('sale_line_id', 'in', order_lines)])
                             matching_moves = move_obj.search(_cr, self.session.uid,
                                                             [('id', 'in', matching_moves),
                                                              ('move_dest_id', 'in', outbound_move_ids),
