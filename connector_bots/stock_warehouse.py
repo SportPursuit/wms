@@ -374,6 +374,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
         carrier = picking_json.get('carrier')
         carrier_service = picking_json.get('carrier_service')
 
+        # If the carrier is seven senders, the lower-level carrier service is the correct courier to use
         if carrier == '7S':
             carrier = carrier_service.upper().replace(" ", "_")
 
