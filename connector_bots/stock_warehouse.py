@@ -372,6 +372,10 @@ class WarehouseAdapter(BotsCRUDAdapter):
 
         tracking_number = picking_json.get('tracking_number')
         carrier = picking_json.get('carrier')
+        carrier_service = picking_json.get('carrier_service')
+
+        if carrier == '7S':
+            carrier = carrier_service.upper().replace(" ", "_")
 
         if not tracking_number and not carrier:
             return
