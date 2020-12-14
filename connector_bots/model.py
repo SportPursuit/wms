@@ -7,7 +7,8 @@ logger = logging.getLogger(__name__)
 REQUEUE_ERRORS = [
     "waits for ShareLock on transaction",
     "'NoneType' object has no attribute 'pop'",
-    "could not serialize access due to concurrent update"
+    "could not serialize access due to concurrent update",
+    "current transaction is aborted"
 ]
 
 
