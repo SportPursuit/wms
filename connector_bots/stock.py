@@ -301,7 +301,13 @@ class StockPickingTracking(orm.Model):
             carrier = tracking_ref.carrier_id
 
             if carrier.tracking_link:
-                url = carrier.tracking_link.replace('[[code]]', tracking_ref.tracking_reference)
+                reference = tracking_ref.tracking_reference
+                try:
+                    postcode = tracking_ref.picking_id.partner_id.zip
+                except Exception:
+                    logger.exception("Exception while fetching postcode for picking %s", tracking_ref.picking_id.id)
+                    postcode = ''
+                url = carrier.tracking_link.replace('[[code]]', reference).replace('[[postcode]]', postcode)
             else:
                 url = ''
 
@@ -317,12 +323,18 @@ class StockPickingTracking(orm.Model):
 
         for tracking_ref in tracking_refs:
             carrier = tracking_ref.carrier_id
+            reference = tracking_ref.tracking_reference
 
             if carrier.tracking_link:
-                url = carrier.tracking_link.replace('[[code]]', tracking_ref.tracking_reference)
-                url = '<a href="%s" target="_blank">%s - %s</a>' % (url, carrier.name, tracking_ref.tracking_reference)
+                try:
+                    postcode = tracking_ref.picking_id.partner_id.zip
+                except Exception:
+                    logger.exception("Exception while fetching postcode for picking %s", tracking_ref.picking_id.id)
+                    postcode = ''
+                url = carrier.tracking_link.replace('[[code]]', reference).replace('[[postcode]]', postcode)
+                url = '<a href="%s" target="_blank">%s - %s</a>' % (url, carrier.name, reference)
             else:
-                url = "%s - %s" % (carrier.name, tracking_ref.tracking_reference)
+                url = "%s - %s" % (carrier.name, reference)
 
             res[tracking_ref.id] = url
 
