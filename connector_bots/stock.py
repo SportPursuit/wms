@@ -35,8 +35,6 @@ from openerp.addons.connector_wms.event import on_picking_out_available, on_pick
 
 from openerp.addons.stock import stock_picking as stock_StockPicking
 
-from datetime import datetime, timedelta
-
 from .unit.binder import BotsModelBinder
 from .unit.backend_adapter import BotsCRUDAdapter
 from .backend import bots
@@ -52,11 +50,6 @@ EXPORT_PICKING_PRIORITY = 3
 
 DROPSHIP_SEPARATOR = 'D'
 DROPSHIP_BACKEND = 'Dropship Shipments'
-
-# Default delay for split pickings is 3 days
-EXPORT_PICKING_DELAY_DAYS = 3
-
-INTERNATIONAL_WAREHOUSE_MAPPING = {'GB': 'WDE', 'DE': 'WRS'}
 
 logger = logging.getLogger(__name__)
 
