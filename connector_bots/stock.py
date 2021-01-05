@@ -35,6 +35,8 @@ from openerp.addons.connector_wms.event import on_picking_out_available, on_pick
 
 from openerp.addons.stock import stock_picking as stock_StockPicking
 
+from datetime import datetime, timedelta
+
 from .unit.binder import BotsModelBinder
 from .unit.backend_adapter import BotsCRUDAdapter
 from .backend import bots
@@ -51,6 +53,10 @@ EXPORT_PICKING_PRIORITY = 3
 DROPSHIP_SEPARATOR = 'D'
 DROPSHIP_BACKEND = 'Dropship Shipments'
 
+# Default delay for split pickings is 3 days
+EXPORT_PICKING_DELAY_DAYS = 3
+
+INTERNATIONAL_WAREHOUSE_MAPPING = {'GB': 'WDE', 'DE': 'WRS'}
 
 logger = logging.getLogger(__name__)
 
@@ -1191,6 +1197,28 @@ def delay_export_picking_out(session, model_name, record_id, vals):
                 return
         else:
             raise Exception('Unable to create a unique bots id')
+
+    delivery_country = picking.openerp_id.partner_id.country_id.code
+    picking_warehouse_code = picking.openerp_id.warehouse_id.code
+    if INTERNATIONAL_WAREHOUSE_MAPPING.get(delivery_country, '') == picking_warehouse_code:
+        cr = session.cr
+        uid = session.uid
+        picking_obj = session.pool.get('stock.picking')
+        bots_obj = session.pool.get(model_name)
+        order_id = picking.openerp_id.sale_id.id
+        split_picking_delay = EXPORT_PICKING_DELAY_DAYS * 86400
+        delivery_order_ids = picking_obj.search(cr, uid, [('sale_id', '=', order_id)])
+        delivery_orders = [picking_obj.browse(id) for id in delivery_order_ids if id != picking.openerp_id.id]
+        for do in delivery_orders:
+            if do.warehouse_id.code == INTERNATIONAL_WAREHOUSE_MAPPING.get(delivery_country):
+                do_bots_records = bots_obj.search(cr, uid, [('openerp_id', '=', do.id)])
+                if do_bots_records:
+                    bots_record = bots_obj.browse(cr, uid, do_bots_records[0])
+                    if bots_record.bots_id:
+                        update_date = bots_record.write_date
+                        if datetime.now() < update_date + timedelta(EXPORT_PICKING_DELAY_DAYS):
+                            delay += split_picking_delay
+                            break
 
     export_picking.delay(session, model_name, record_id, eta=delay, priority=EXPORT_PICKING_PRIORITY)
 
