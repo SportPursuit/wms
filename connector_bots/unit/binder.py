@@ -47,8 +47,6 @@ class BotsModelBinder(BotsBinder):
                 self.model._name,
                 [('bots_id', '=', str(external_id)),
                  ('backend_id', '=', self.backend_record.id)])
-        if not binding_ids:
-            return None
         return binding_ids
 
     def to_openerp(self, external_id, unwrap=False):
