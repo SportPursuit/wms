@@ -500,7 +500,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
         bots_picking_out_obj = self.session.pool.get('bots.stock.picking.out')
         move_ids = []
         for line in picking_data['line']:
-            move_ids.append(line['move_ids'])
+            move_ids.append(int(line['move_ids']))
         stock_moves = move_obj.browse(cr, uid, move_ids)
         picking_ids = list(set([move.picking_id.id for move in stock_moves]))
         bots_ids = set(bots_picking_out_obj.search(cr, uid, [('openerp_id', 'in', picking_ids)]))
