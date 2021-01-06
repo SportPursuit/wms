@@ -42,6 +42,15 @@ class BotsModelBinder(BotsBinder):
     _model_name = [
         ]
 
+    def to_openerp_list(self, external_id, unwrap=False):
+        binding_ids = self.session.search(
+                self.model._name,
+                [('bots_id', '=', str(external_id)),
+                 ('backend_id', '=', self.backend_record.id)])
+        if not binding_ids:
+            return None
+        return binding_ids
+
     def to_openerp(self, external_id, unwrap=False):
         """ Give the OpenERP ID for an external ID
 
