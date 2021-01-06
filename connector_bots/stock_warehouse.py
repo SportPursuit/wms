@@ -548,7 +548,7 @@ class WarehouseAdapter(BotsCRUDAdapter):
                     main_picking_id = main_picking_list[0]
                 elif len(main_picking_list) > 1:
                     # Use the move ids in the picking data to establish the correct picking to use
-                    main_picking_id = self.get_picking_by_move(picking, main_picking_list)
+                    main_picking_id = self.get_picking_by_move(picking, set(main_picking_list))
                 else:
                     main_picking_id = None
 
