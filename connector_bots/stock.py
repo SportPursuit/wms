@@ -1227,11 +1227,12 @@ def delay_export_picking_out(session, model_name, record_id, vals):
 
     if picking.openerp_id.bots_export_delay:
         export_delay = picking.openerp_id.bots_export_delay
-        delay += export_delay
+        if export_delay and isinstance(export_delay, int):
+            delay += export_delay
 
     else:
         additional_delay = get_additional_delay(session, picking, model_name) or 0
-        if additional_delay:
+        if additional_delay and isinstance(additional_delay, int):
             delay += additional_delay
 
     export_picking.delay(session, model_name, record_id, eta=delay, priority=EXPORT_PICKING_PRIORITY)
