@@ -1199,7 +1199,7 @@ def get_additional_delay(session, picking, model_name):
                         if datetime.now() < sync_date_plus_offset:
                             additional_delay = split_picking_delay_seconds
                             break
-        return additional_delay
+    return additional_delay
 
 
 @on_record_create(model_names='bots.stock.picking.out')
