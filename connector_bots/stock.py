@@ -1172,7 +1172,7 @@ class BotsPickingExport(ExportSynchronizer):
         pass
 
 
-def get_additional_delay(session, picking):
+def get_additional_delay(session, picking, model_name):
     delivery_country = picking.openerp_id.partner_id.country_id.code
     picking_warehouse_code = picking.openerp_id.warehouse_id.code
     additional_delay = 0
@@ -1231,7 +1231,7 @@ def delay_export_picking_out(session, model_name, record_id, vals):
         delay += export_delay
 
     else:
-        additional_delay = get_additional_delay(session, picking) or 0
+        additional_delay = get_additional_delay(session, picking, model_name) or 0
         delay += additional_delay
 
     export_picking.delay(session, model_name, record_id, eta=delay, priority=EXPORT_PICKING_PRIORITY)
