@@ -1193,7 +1193,9 @@ def get_additional_delay(session, picking, model_name):
                 if do_bots_records:
                     bots_record = bots_obj.browse(cr, uid, do_bots_records[0])
                     if bots_record.bots_id and bots_record.sync_date:
-                        sync_date_plus_offset = bots_record.sync_date + timedelta(days=split_picking_delay_days)
+                        fmt = DEFAULT_SERVER_DATETIME_FORMAT
+                        sync_date = datetime.strptime(bots_record.sync_date, fmt)
+                        sync_date_plus_offset = sync_date + timedelta(days=split_picking_delay_days)
                         if datetime.now() < sync_date_plus_offset:
                             additional_delay = split_picking_delay_seconds
                             break
