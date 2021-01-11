@@ -1180,12 +1180,9 @@ def get_additional_delay(session, picking, model_name):
         cr = session.cr
         uid = session.uid
         picking_obj = session.pool.get('stock.picking')
-        warehouse_obj = session.pool.get('stock.warehouse')
         bots_obj = session.pool.get(model_name)
         order_id = picking.openerp_id.sale_id.id
-        logger.info("WAREHOUSE DICT " + str(picking.warehouse_id.__dict__))
-        logger.info("PICKING DELAY " + str(warehouse_obj.browse(cr, SUPERUSER_ID, picking.warehouse_id.id).picking_export_delay))
-        wh_delay = warehouse_obj.browse(cr, uid, picking.warehouse_id.id).picking_export_delay
+        wh_delay = picking.openerp_id.warehouse_id.picking_export_delay
         split_picking_delay_seconds = wh_delay * 3600
         split_picking_delay_days = wh_delay / 24
         delivery_order_ids = picking_obj.search(cr, uid, [('sale_id', '=', order_id)])
