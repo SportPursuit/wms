@@ -1186,7 +1186,7 @@ def get_additional_delay(session, picking, model_name):
         split_picking_delay_seconds = wh_delay * 3600
         split_picking_delay_days = wh_delay / 24
         delivery_order_ids = picking_obj.search(cr, uid, [('sale_id', '=', order_id)])
-        delivery_orders = [picking_obj.browse(id) for id in delivery_order_ids if id != picking.openerp_id.id]
+        delivery_orders = [picking_obj.browse(cr, uid, id) for id in delivery_order_ids if id != picking.openerp_id.id]
         for do in delivery_orders:
             if do.warehouse_id.code == INTERNATIONAL_WAREHOUSE_MAPPING.get(delivery_country):
                 do_bots_records = bots_obj.search(cr, uid, [('openerp_id', '=', do.id)])
