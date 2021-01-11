@@ -1226,7 +1226,7 @@ def delay_export_picking_out(session, model_name, record_id, vals):
             raise Exception('Unable to create a unique bots id')
 
     if picking.openerp_id.bots_export_delay:
-        export_delay = picking.openerp_id.bots_export_delay
+        export_delay = picking.openerp_id.bots_export_delay or 0
         if export_delay and isinstance(export_delay, int):
             delay += export_delay
 
