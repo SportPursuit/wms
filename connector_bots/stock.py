@@ -53,6 +53,7 @@ EXPORT_PICKING_PRIORITY = 3
 DROPSHIP_SEPARATOR = 'D'
 DROPSHIP_BACKEND = 'Dropship Shipments'
 
+INTERNATIONAL_WAREHOUSE_MAPPING = {'GB': 'WDE', 'DE': 'WRS'}
 
 logger = logging.getLogger(__name__)
 
