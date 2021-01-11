@@ -1231,7 +1231,8 @@ def delay_export_picking_out(session, model_name, record_id, vals):
 
     else:
         additional_delay = get_additional_delay(session, picking, model_name) or 0
-        delay += additional_delay
+        if additional_delay:
+            delay += additional_delay
 
     export_picking.delay(session, model_name, record_id, eta=delay, priority=EXPORT_PICKING_PRIORITY)
 
