@@ -48,6 +48,9 @@ import re
 import openerp.addons.decimal_precision as dp
 
 
+SECOND_MULTIPLIER = 3600
+DAY_DIVIDER = 24
+
 EXPORT_PICKING_PRIORITY = 3
 
 DROPSHIP_SEPARATOR = 'D'
@@ -1183,8 +1186,8 @@ def get_additional_delay(session, picking, model_name):
         bots_obj = session.pool.get(model_name)
         order_id = picking.openerp_id.sale_id.id
         wh_delay = picking.openerp_id.warehouse_id.picking_export_delay
-        split_picking_delay_seconds = wh_delay * 3600
-        split_picking_delay_days = wh_delay / 24
+        split_picking_delay_seconds = wh_delay * SECOND_MULTIPLIER
+        split_picking_delay_days = wh_delay / DAY_DIVIDER
         delivery_order_ids = picking_obj.search(cr, uid, [('sale_id', '=', order_id)])
         delivery_orders = [picking_obj.browse(cr, uid, id) for id in delivery_order_ids if id != picking.openerp_id.id]
         for do in delivery_orders:
