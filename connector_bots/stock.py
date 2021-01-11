@@ -1208,6 +1208,8 @@ def delay_export_picking_out(session, model_name, record_id, vals):
     delay = session.pool.get('ir.config_parameter').get_param(session.cr, session.uid, 'connector.bots.picking_out_delay', default=900)
     if type(delay) in (str, unicode):
         delay = delay.isdigit() and int(delay) or 900
+    if not delay:
+        delay = 0
 
     # Dropship orders do not export data to the warehouse but we need the bots record to have a bots id so it will
     # show as exported.
