@@ -35,6 +35,8 @@ from openerp.addons.connector_wms.event import on_picking_out_available, on_pick
 
 from openerp.addons.stock import stock_picking as stock_StockPicking
 
+from datetime import datetime, timedelta
+
 from .unit.binder import BotsModelBinder
 from .unit.backend_adapter import BotsCRUDAdapter
 from .backend import bots
@@ -46,11 +48,15 @@ import re
 import openerp.addons.decimal_precision as dp
 
 
+SECOND_MULTIPLIER = 3600
+DAY_DIVIDER = 24
+
 EXPORT_PICKING_PRIORITY = 3
 
 DROPSHIP_SEPARATOR = 'D'
 DROPSHIP_BACKEND = 'Dropship Shipments'
 
+INTERNATIONAL_WAREHOUSE_MAPPING = {'GB': 'WDE', 'DE': 'WRS'}
 
 logger = logging.getLogger(__name__)
 
@@ -1169,12 +1175,44 @@ class BotsPickingExport(ExportSynchronizer):
         pass
 
 
+def get_additional_delay(session, picking, model_name):
+    delivery_country = picking.openerp_id.partner_id.country_id.code
+    picking_warehouse_code = picking.openerp_id.warehouse_id.code
+    additional_delay = 0
+    if INTERNATIONAL_WAREHOUSE_MAPPING.get(delivery_country, '') == picking_warehouse_code:
+        cr = session.cr
+        uid = session.uid
+        picking_obj = session.pool.get('stock.picking')
+        bots_obj = session.pool.get(model_name)
+        order_id = picking.openerp_id.sale_id.id
+        wh_delay = picking.openerp_id.warehouse_id.picking_export_delay
+        split_picking_delay_seconds = wh_delay * SECOND_MULTIPLIER
+        split_picking_delay_days = wh_delay / DAY_DIVIDER
+        delivery_order_ids = picking_obj.search(cr, uid, [('sale_id', '=', order_id)])
+        delivery_orders = [picking_obj.browse(cr, uid, id) for id in delivery_order_ids if id != picking.openerp_id.id]
+        for do in delivery_orders:
+            if do.warehouse_id.code == INTERNATIONAL_WAREHOUSE_MAPPING.get(delivery_country):
+                do_bots_records = bots_obj.search(cr, uid, [('openerp_id', '=', do.id)])
+                if do_bots_records:
+                    bots_record = bots_obj.browse(cr, uid, do_bots_records[0])
+                    if bots_record.bots_id and bots_record.sync_date:
+                        fmt = DEFAULT_SERVER_DATETIME_FORMAT
+                        sync_date = datetime.strptime(bots_record.sync_date, fmt)
+                        sync_date_plus_offset = sync_date + timedelta(days=split_picking_delay_days)
+                        if datetime.now() < sync_date_plus_offset:
+                            additional_delay = split_picking_delay_seconds
+                            break
+    return additional_delay
+
+
 @on_record_create(model_names='bots.stock.picking.out')
 def delay_export_picking_out(session, model_name, record_id, vals):
     # By default delay for 15 mins (configurable) to allow multiple moves becoming available within a short time to be exported together
     delay = session.pool.get('ir.config_parameter').get_param(session.cr, session.uid, 'connector.bots.picking_out_delay', default=900)
     if type(delay) in (str, unicode):
         delay = delay.isdigit() and int(delay) or 900
+    if not delay:
+        delay = 0
 
     # Dropship orders do not export data to the warehouse but we need the bots record to have a bots id so it will
     # show as exported.
@@ -1191,6 +1229,15 @@ def delay_export_picking_out(session, model_name, record_id, vals):
                 return
         else:
             raise Exception('Unable to create a unique bots id')
+
+    if picking.openerp_id.bots_export_delay and isinstance(picking.openerp_id.bots_export_delay, int):
+        export_delay = picking.openerp_id.bots_export_delay
+        delay += export_delay
+
+    else:
+        additional_delay = get_additional_delay(session, picking, model_name) or 0
+        if additional_delay and isinstance(additional_delay, int):
+            delay += additional_delay
 
     export_picking.delay(session, model_name, record_id, eta=delay, priority=EXPORT_PICKING_PRIORITY)
 
