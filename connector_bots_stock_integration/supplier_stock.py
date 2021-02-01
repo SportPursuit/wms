@@ -96,6 +96,7 @@ class StockAdapter(BotsCRUDAdapter):
     def process_stock_file(self, filename):
 
         missing_products_obj = self.session.pool.get('supplier.feed.missing.products')
+        warehouse_obj = self.session.pool.get('stock.warehouse')
 
         bots_file_id = self.session.pool.get('bots.file').search(
             self.session.cr, SUPERUSER_ID, [('full_path', '=', filename)]
@@ -104,34 +105,41 @@ class StockAdapter(BotsCRUDAdapter):
         if bots_file_id and len(bots_file_id) == 1:
 
             with file_to_process(self.session, bots_file_id[0], raise_if_processed=True, filemode='rU') as csv_file:
-                supplier, product_details = self._preprocess_rows(csv_file)
+                supplier, product_details, all_products_zero = self._preprocess_rows(csv_file)
                 supplier_warehouse_id = supplier.default_warehouse_id.id
                 supplier_threshold = supplier.stock_feed_threshold
 
             today = datetime.strftime(datetime.now(), "%d-%m-%Y")
+            warehouse_ids = warehouse_obj.seach(self.session.cr, self.session.uid, [])
 
             index = 0
             n = 500
             product_items = product_details.products.items()
             chunks_list = [product_items[i * n:(i + 1) * n] for i in range((len(product_items) + n - 1) // n)]
+            zero_chunks_list = [all_products_zero[i * n:(i + 1) * n] for i in range((len(all_products_zero) + n - 1) // n)]
 
-            for product_list in chunks_list:
+            warehouse_update_list = [(wid, zero_chunks_list) for wid in warehouse_ids if wid != supplier_warehouse_id]
+            warehouse_update_list.append(supplier_warehouse_id, chunks_list)
 
-                index += 1
+            for warehouse_id, product_list_chunks in warehouse_update_list.iteritems():
 
-                inventory_record = {
-                    'state': 'draft',
-                    'name': 'Stock Integration Update %s - %s : %s' % (index, supplier.name, today)
-                }
+                for product_list in product_list_chunks:
 
-                inventory_id = self.session.create('stock.inventory', inventory_record)
+                    index += 1
 
-                confirm_physical_inventory.delay(self.session,
-                                                 'stock.inventory',
-                                                 supplier_warehouse_id,
-                                                 supplier_threshold,
-                                                 product_list,
-                                                 inventory_id)
+                    inventory_record = {
+                        'state': 'draft',
+                        'name': 'Stock Integration Update %s - %s : %s' % (index, supplier.name, today)
+                    }
+
+                    inventory_id = self.session.create('stock.inventory', inventory_record)
+
+                    confirm_physical_inventory.delay(self.session,
+                                                     'stock.inventory',
+                                                     warehouse_id,
+                                                     supplier_threshold,
+                                                     product_list,
+                                                     inventory_id)
 
             for sku, barcode, quantity in product_details.missing_products:
                 # This will assign the id from the last stock inventory created to the missing products created here
@@ -168,6 +176,8 @@ class StockAdapter(BotsCRUDAdapter):
         product_details = self._get_product_details(rows)
         supplier, all_supplier_products, supplier_error_message = self._check_supplier_details(rows, product_details)
 
+        all_products_zero = [(product_id, 0) for product_id in all_supplier_products]
+
         products_error_message = product_details.error_message
 
         if products_error_message or supplier_error_message:
@@ -177,7 +187,7 @@ class StockAdapter(BotsCRUDAdapter):
             """.format(supplier_errors=supplier_error_message, product_errors=products_error_message))
 
         self.apply_clear_products_rules(supplier, all_supplier_products, product_details)
-        return supplier, product_details
+        return supplier, product_details, all_products_zero
 
     def _get_product_details(self, rows):
         """ Ensure that the product information in the csv is correct
