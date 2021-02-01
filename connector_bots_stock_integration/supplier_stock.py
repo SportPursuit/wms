@@ -119,7 +119,7 @@ class StockAdapter(BotsCRUDAdapter):
             zero_chunks_list = [all_products_zero[i * n:(i + 1) * n] for i in range((len(all_products_zero) + n - 1) // n)]
 
             warehouse_update_list = [(wid, zero_chunks_list) for wid in warehouse_ids if wid != supplier_warehouse_id]
-            warehouse_update_list.append(supplier_warehouse_id, chunks_list)
+            warehouse_update_list.append((supplier_warehouse_id, chunks_list))
 
             for warehouse_id, product_list_chunks in warehouse_update_list.iteritems():
 
