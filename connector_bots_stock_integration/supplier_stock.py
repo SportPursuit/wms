@@ -110,7 +110,7 @@ class StockAdapter(BotsCRUDAdapter):
                 supplier_threshold = supplier.stock_feed_threshold
 
             today = datetime.strftime(datetime.now(), "%d-%m-%Y")
-            warehouse_ids = warehouse_obj.seach(self.session.cr, self.session.uid, [])
+            warehouse_ids = warehouse_obj.search(self.session.cr, self.session.uid, [])
 
             index = 0
             n = 500
